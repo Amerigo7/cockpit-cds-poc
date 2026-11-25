@@ -149,8 +149,7 @@ facture fournisseur.
 
 Sur l’instance Render, choisissez **Membre CDS**, puis connectez-vous avec
 votre adresse Jira et votre mot de passe du cockpit. **Actualiser depuis
-Jira** lit les tickets OP de type Story, Technical Story, Bug, Defect et Sub-task
-ayant atteint Done pendant le mois. La fiche retient les périodes
+Jira** lit les tickets OP ayant atteint Done pendant le mois, quel que soit leur type. La fiche retient les périodes
 d’assignation au membre dans le mois, jusqu’au dernier passage en Done.
 Les heures ouvrées couvrent le lundi au vendredi, de 9 h à 18 h en heure
 de Paris. Les temps saisis dans Jira restent une colonne de comparaison.

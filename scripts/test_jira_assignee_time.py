@@ -55,3 +55,17 @@ def test_bulk_history_unix_timestamp():
         observed, intervals = build_periods(issue(), [change], "2026-11")
         assert observed == done
         assert intervals[0][3] == done
+
+
+def test_search_does_not_filter_issue_type_by_default():
+    from jira_assignee_time import search_issues
+
+    class JiraFixture:
+        def request(self, path, params):
+            assert path == "search/jql"
+            assert "project = OP" in params["jql"]
+            assert 'status CHANGED TO "Done"' in params["jql"]
+            assert "issuetype IN" not in params["jql"]
+            return {"issues": [], "isLast": True}
+
+    assert search_issues(JiraFixture(), "OP", [], ["Done"], "2026-11") == []

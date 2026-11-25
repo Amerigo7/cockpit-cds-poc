@@ -18,7 +18,6 @@ from zoneinfo import ZoneInfo
 
 PARIS = ZoneInfo("Europe/Paris")
 ROOT = "https://api.atlassian.com/ex/jira/7fc30b42-e831-4c22-aef3-5e0bbb7c692e/rest/api/3/"
-ISSUE_TYPES = "Story,Technical Story,Bug,Defect,Sub-task"
 
 
 def parse_date(value):
@@ -143,7 +142,8 @@ def search_issues(client, project, types, statuses, month):
         raise ValueError("Clé de projet invalide.")
     window = f'DURING ("{start:%Y-%m-%d %H:%M}", "{end:%Y-%m-%d %H:%M}")'
     changes = " OR ".join(f"status CHANGED TO {quoted(status)} {window}" for status in statuses)
-    jql = f"project = {project} AND issuetype IN ({','.join(map(quoted, types))}) AND ({changes}) ORDER BY key"
+    type_filter = f" AND issuetype IN ({','.join(map(quoted, types))})" if types else ""
+    jql = f"project = {project}{type_filter} AND ({changes}) ORDER BY key"
     params = {"jql": jql, "fields": "summary,issuetype,status,assignee,created,timespent", "maxResults": 100}
     issues, seen = {}, set()
     while True:
@@ -284,7 +284,7 @@ def write_csv(directory, data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", default="OP")
-    parser.add_argument("--issue-types", default=ISSUE_TYPES)
+    parser.add_argument("--issue-types", default="", help="Filtre facultatif, tous les types par défaut.")
     parser.add_argument("--done-statuses", default="Done")
     parser.add_argument("--month", default=datetime.now(PARIS).strftime("%Y-%m"))
     parser.add_argument("--assignee")
@@ -300,8 +300,8 @@ def main():
             raise ValueError("Configurez JIRA_EMAIL et JIRA_API_TOKEN.")
         types = [value.strip() for value in args.issue_types.split(",") if value.strip()]
         statuses = [value.strip() for value in args.done_statuses.split(",") if value.strip()]
-        if not types or not statuses:
-            raise ValueError("Précisez les types et statuts Jira.")
+        if not statuses:
+            raise ValueError("Précisez les statuts Jira.")
         data = report(Jira(email, token), args.project, types, statuses, args.month, args.assignee,
                       args.business_hours, args.clip_month)
         if args.json:
