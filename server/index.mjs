@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
-import { initialStore, getInvoiceForMonth } from '../dist/domain.js';
+import { initialStore, getInvoiceForMonth, isPoOwner, visiblePoInvoices, moneyRound } from '../dist/domain.js';
 import { applyAction } from './actions.mjs';
 import { searchEpics, verifyNewEpicLinks, previewWorklogs } from './jira.mjs';
 
@@ -44,14 +44,21 @@ function json(res, status, payload) {
 }
 function visibleState(state, role) {
   const copy = structuredClone(state);
-  if (role !== 'lassaad') {
-    for (const invoice of copy.cockpits.flatMap(cockpit => cockpit.invoices)) {
-      const visible = role === 'laurent' && ['sent', 'returned', 'validated'].includes(invoice.status);
-      if (visible) continue;
-      delete invoice.supplierNote;
-      delete invoice.reviewNote;
-      delete invoice.number;
-      if (invoice.status !== 'validated') invoice.lines = [];
+  if (role === 'lassaad') return copy;
+  for (const cockpit of copy.cockpits) {
+    const visible = new Set(visiblePoInvoices(cockpit, role));
+    cockpit.invoices = cockpit.invoices.flatMap(invoice => {
+      if (visible.has(invoice)) return [invoice];
+      if (invoice.status !== 'validated') return [];
+      // Keep only the project totals needed for the shared budget forecast.
+      const totals = new Map();
+      for (const line of invoice.lines) {
+        totals.set(line.projectId, (totals.get(line.projectId) || 0) + moneyRound(line.billedDays * line.billedRate));
+      }
+      return [{ month: invoice.month, status: 'validated', lines: [...totals].map(([projectId, amount]) => ({ projectId, amount: moneyRound(amount) })) }];
+    });
+    if (!isPoOwner(cockpit, role)) {
+      cockpit.audit = cockpit.audit.filter(event => !/facture/i.test(event.action));
     }
   }
   return copy;

@@ -134,3 +134,13 @@ consulter OP et un jeton de lecture compatible avec l’API de recherche Jira.
 Le catalogue est accessible à Laurent et Jennifer. Les secrets restent
 dans l’environnement du serveur. La démo statique conserve la saisie
 manuelle des clés.
+
+
+Dans l’instance partagée, le mode d’emploi s’affiche lors de la première
+connexion par profil et par navigateur. **Help me · Mode d’emploi** permet
+de le rouvrir. Laurent et Jennifer peuvent créer des PO. L’owner Accor
+est désigné à la création, avec Laurent par défaut. Seul l’owner consulte
+les factures reçues de son PO et voit une alerte dans le cockpit lorsqu’une
+facture à valider présente un écart de montant. Lassaad valide les
+imputations par projet et profil pour le mois choisi avant de créer la
+facture fournisseur.

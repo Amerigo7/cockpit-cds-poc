@@ -9,7 +9,11 @@ export function applyAction(store, who, action, args, cockpitId) {
       throw Error('Ce PO dispose déjà d’un cockpit.');
     }
     const cockpit = D.newCockpit();
+    const owner = args[1] ?? 'laurent';
+    if (!['laurent', 'jennifer'].includes(owner)) throw Error('Sélectionnez un owner Accor.');
     cockpit.poRef = ref;
+    cockpit.owner = D.ACTORS[owner];
+    cockpit.coOwner = D.ACTORS[owner === 'laurent' ? 'jennifer' : 'laurent'];
     store.cockpits.push(cockpit);
     return cockpit;
   }
@@ -23,12 +27,12 @@ export function applyAction(store, who, action, args, cockpitId) {
         'openingMonth', 'owner', 'coOwner', 'supplier', 'monthlyDays', 'rates', 'projects'];
       const definition = Object.fromEntries(fields.map(field => [field, input[field]]));
       if (definition.poRef !== cockpit.poRef) throw Error('La référence du PO partagé est fixe.');
+      if (definition.owner !== cockpit.owner) throw Error('L’owner est défini à la création du PO.');
       return D.saveDefinition(cockpit, definition, who, activate === true);
     }
     case 'expense':
       return D.saveExpense(cockpit, args[0], args[1], who, args[2]);
     case 'createInvoice':
-      D.saveExpense(cockpit, args[0], args[1], who, args[2]);
       return D.createInvoice(cockpit, args[0], who);
     case 'revise':
       return D.reviseExpense(cockpit, args[0], args[1], who);
