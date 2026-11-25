@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 PARIS = ZoneInfo("Europe/Paris")
 ROOT = "https://api.atlassian.com/ex/jira/7fc30b42-e831-4c22-aef3-5e0bbb7c692e/rest/api/3/"
-ISSUE_TYPES = "Story,Technical Story,Bug,Defect"
+ISSUE_TYPES = "Story,Technical Story,Bug,Defect,Sub-task"
 
 
 def parse_date(value):
