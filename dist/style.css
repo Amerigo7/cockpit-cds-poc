@@ -100,3 +100,8 @@ th{font-size:14px}.metric .label,.metric .detail,.panel-head p,.subtle,.tag{font
 .epic-option strong { display: block; font-size: .9rem; overflow-wrap: anywhere; }
 .epic-option small { color: var(--muted); }
 .epic-footer { display: flex; flex-wrap: wrap; justify-content: end; gap: .45rem; margin-top: .7rem; }
+
+.auth-member-email { display: none; }
+.shared-login-card form:has([value="member"]:checked) .auth-member-email { display: grid; }
+#member-status, #member-summary { margin-block: .8rem; }
+#member-validate { margin-top: 1rem; }

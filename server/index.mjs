@@ -4,6 +4,7 @@ import pg from 'pg';
 import { initialStore, getInvoiceForMonth, isPoOwner, visiblePoInvoices, moneyRound } from '../dist/domain.js';
 import { applyAction } from './actions.mjs';
 import { sessions, loginPage } from './session.mjs';
+import { memberConfig, getMemberSheet, refreshMemberSheet, validateMemberSheet } from './member.mjs';
 import { resetReceiptWorkspace } from './reset-receipt.mjs';
 import { searchEpics, verifyNewEpicLinks, previewWorklogs } from './jira.mjs';
 
@@ -18,6 +19,13 @@ await db.query('INSERT INTO cockpit VALUES (1, 0, $1) ON CONFLICT DO NOTHING', [
 
 await db.query('CREATE TABLE IF NOT EXISTS cds_session (token_hash text PRIMARY KEY, role text NOT NULL, expires_at timestamptz NOT NULL)');
 await db.query('ALTER TABLE cds_session ADD COLUMN IF NOT EXISTS cockpit_opened boolean NOT NULL DEFAULT true');
+const member = memberConfig();
+if (member) passwords[member.email] = member.password;
+await db.query(`CREATE TABLE IF NOT EXISTS cds_member_sheet (
+  email text NOT NULL, month text NOT NULL, snapshot jsonb NOT NULL,
+  version integer NOT NULL DEFAULT 1, validated_at timestamptz,
+  PRIMARY KEY(email, month)
+)`);
 const auth = sessions(db, passwords);
 
 // One-time cleanup of the initial hosted acceptance test. The revision guard
@@ -88,19 +96,55 @@ createServer(async (req, res) => {
       } else {
         if (!req.headers['content-type']?.startsWith('application/x-www-form-urlencoded')) return json(res, 400, { error: 'Formulaire de connexion requis.' });
         const form = new URLSearchParams(await readBody(req, 4096));
-        const ok = await auth.login(req, res, form.get('role') || '', form.get('password') || '');
-        if (!ok) return loginPage(res, 'invalid');
+        const chosen = form.get('role');
+        const role = chosen === 'member' ? (form.get('email') || '').trim().toLowerCase() :
+          roles.includes(chosen) ? chosen : '';
+        const ok = chosen === 'member' && role !== member?.email ? false :
+          await auth.login(req, res, role, form.get('password') || '');
+        if (!ok) return loginPage(res, 'invalid', Boolean(member));
       }
       res.writeHead(303, { Location: path === '/login' ? '/cockpit' : '/' });
       return res.end();
     }
-    if (path === '/' && req.method === 'GET') return loginPage(res);
+    if (path === '/' && req.method === 'GET') return loginPage(res, '', Boolean(member));
     if (path === '/cockpit' && req.method === 'GET' && !await auth.openCockpit(req)) {
       res.writeHead(303, { Location: '/' });
       return res.end();
     }
     const role = await auth.role(req);
     if (!role && path !== '/style.css') return json(res, 401, { error: 'Connexion au cockpit requise.' });
+    if (role && role === member?.email && path !== '/style.css') {
+      if (req.method === 'GET' && ['/cockpit','/member.js'].includes(path)) {
+        const filename = path === '/cockpit' ? 'member.html' : 'member.js';
+        const html = path === '/cockpit';
+        res.writeHead(200, { 'Content-Type': (html ? 'text/html' : 'text/javascript') + '; charset=utf-8' });
+        return res.end(await readFile(new URL('./' + filename, import.meta.url), 'utf8'));
+      }
+      if (path !== '/api/member/sheet') return json(res, 403, { error: 'Accès réservé à votre fiche CDS.' });
+      const month = requestUrl.searchParams.get('month') || '';
+      try {
+        let sheet;
+        if (req.method === 'GET') sheet = await getMemberSheet(db, member, month);
+        else if (req.method === 'POST' && req.headers['sec-fetch-site'] === 'same-origin' &&
+            req.headers['content-type'] === 'application/json') {
+          const { action, version } = JSON.parse(await readBody(req, 4096));
+          if (action === 'refresh') sheet = await refreshMemberSheet(db, member, month);
+          else if (action === 'validate') sheet = await validateMemberSheet(db, member, month, version);
+          else return json(res, 400, { error: 'Action inconnue.' });
+        } else return json(res, 403, { error: 'Requête hors du cockpit.' });
+        return json(res, 200, { name: member.name, sheet });
+      } catch (error) {
+        return json(res, 400, { error: error.message });
+      }
+    }
+    if (path === '/api/member/submissions' && req.method === 'GET') {
+      if (role !== 'lassaad') return json(res, 403, { error: 'Fiches validées réservées au responsable CDS.' });
+      const { rows } = await db.query(`
+        SELECT month, snapshot, validated_at FROM cds_member_sheet
+        WHERE email = $1 AND validated_at IS NOT NULL ORDER BY month DESC
+      `, [member?.email || '']);
+      return json(res, 200, { name: member?.name, sheets: rows });
+    }
     if (path === '/api/jira/worklogs' && req.method === 'GET') {
       if (role !== 'lassaad') return json(res, 403, { error: 'Lecture des temps réservée à Lassaad.' });
       const id = requestUrl.searchParams.get('cockpitId');

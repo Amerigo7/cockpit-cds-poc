@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ma fiche d’imputation · Cockpit CDS</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header class="topbar"><strong>Cockpit CDS · Membre</strong><form action="/logout" method="post"><button class="btn" type="submit">Se déconnecter</button></form></header>
+<main class="content">
+  <div class="heading"><div><h1>Ma fiche d’imputation</h1><p id="member-name"></p></div></div>
+  <p>Tickets Jira OP passés en Done pendant le mois. Seules les périodes où vous étiez assigné, comprises dans le mois, sont prises en compte.</p>
+  <p>Les heures d’assignation décrivent la durée d’affectation. Les heures saisies dans Jira sont affichées séparément.</p>
+  <section class="panel"><div class="panel-body">
+    <div class="inline"><label for="member-month">Mois d’imputation</label><input id="member-month" type="month">
+      <button class="btn primary" id="member-load" type="button">Actualiser depuis Jira</button></div>
+    <p id="member-status" role="status"></p>
+    <div id="member-summary"></div>
+    <div id="member-results" class="table-wrap"></div>
+    <button id="member-validate" type="button" class="btn teal" hidden>Valider ma fiche</button>
+  </div></section>
+</main>
+<script type="module" src="/member.js"></script></body></html>

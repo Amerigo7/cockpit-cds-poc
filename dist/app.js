@@ -225,7 +225,20 @@ function applyJiraWorklogs() {
 function abandon(){return !dirty||confirm('Des modifications ne sont pas enregistrées. Les abandonner ?');}
 function closeModal(){if(modalDirty&&!confirm('Abandonner les modifications de la facture ?'))return false;modal.close();jiraPreview=null;modalDirty=false;modalInvoice=null;return true;}
 function availableMonth(c){const months=D.monthsBetween(c.start,c.end).filter(m=>!c.openingMonth||m>c.openingMonth);return months.includes(selectedMonth)?selectedMonth:months.includes(c.reportMonth)?c.reportMonth:months[0]||'';}
-function render(){closeEpicPicker();if(!who){root.innerHTML=V.login();return;}const c=current();selectedMonth=availableMonth(c);if(tab==='setup'&&!setupDraft)setupDraft=structuredClone(c);const body=tab==='setup'?V.setup(setupDraft,shared):tab==='allocation'?V.allocation(c,selectedMonth,shared):tab==='invoices'?V.invoices(c,who):tab==='guide'?V.guide(c,shared,who,onboarding):V.budget(c,who);root.innerHTML=V.shell(store,who,tab,body,shared);dirty=false;if(tab==='setup')updateSplit();if(tab==='allocation')updateAllocation();}
+async function loadMemberSubmissions() {
+  const panel = document.getElementById('member-submissions');
+  if (!panel) return;
+  try {
+    const response = await fetch('/api/member/submissions');
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error);
+    panel.innerHTML = data.sheets.length ? data.sheets.map(row => {
+      const tickets = row.snapshot.tickets;
+      return `<details class="panel"><summary class="panel-body">${V.h(data.name)} · ${V.h(row.month)} · ${tickets.length} ticket(s) · Validée</summary><div class="panel-body table-wrap"><table><thead><tr><th>Ticket</th><th>Heures calendaires</th><th>Heures ouvrées</th><th>Temps Jira</th></tr></thead><tbody>${tickets.map(t=>`<tr><td>${V.h(t.key)} · ${V.h(t.summary)}</td><td>${V.dec(t.hours_calendar)} h</td><td>${V.dec(t.hours_business)} h</td><td>${V.dec(t.worklog_hours)} h</td></tr>`).join('')}</tbody></table></div></details>`;
+    }).join('') : 'Aucune fiche membre validée.';
+  } catch (error) { panel.textContent = error.message; }
+}
+function render(){closeEpicPicker();if(!who){root.innerHTML=V.login();return;}const c=current();selectedMonth=availableMonth(c);if(tab==='setup'&&!setupDraft)setupDraft=structuredClone(c);const body=tab==='setup'?V.setup(setupDraft,shared):tab==='allocation'?V.allocation(c,selectedMonth,shared):tab==='invoices'?V.invoices(c,who):tab==='members'&&who==='lassaad'&&shared?'<h1>Fiches CDS</h1><p>Fiches mensuelles validées par les membres.</p><div id="member-submissions" role="status">Chargement…</div>':tab==='guide'?V.guide(c,shared,who,onboarding):V.budget(c,who);root.innerHTML=V.shell(store,who,tab,body,shared);dirty=false;if(tab==='setup')updateSplit();if(tab==='allocation')updateAllocation();if(tab==='members')loadMemberSubmissions();}
 function value(form,name){return form.elements.namedItem(name)?.value??'';}
 function number(form,name){const raw=value(form,name).trim();return raw===''?0:Number(raw);}
 function readDefinition(){const form=document.getElementById('setup-form'),base=setupDraft||current();if(!form)return structuredClone(base);const next={...structuredClone(base)};for(const name of ['name','poRef','start','end','reportMonth','openingMonth','owner','coOwner','supplier'])next[name]=value(form,name).trim();for(const name of ['year','budget','monthlyDays'])next[name]=number(form,name);next.rates=Object.fromEntries(D.ROLES.map(r=>[r.id,number(form,`rate-${r.id}`)]));next.projects=[...form.querySelectorAll('[data-project]')].map(el=>{const p=base.projects.find(p=>p.id===el.dataset.project);const get=name=>el.querySelector(`[name="p-${name}"]`)?.value??'';const optional=name=>get(name).trim()===''?null:Number(get(name));return {...p,name:get('name').trim(),category:get('category'),budget:Number(get('budget')||0),start:get('start'),end:get('end'),openingValidated:Number(get('openingValidated')||0),device:Object.fromEntries(D.ROLES.map(r=>[r.id,Number(get('device-'+r.id)||0)])),pointsPlanned:optional('pointsPlanned'),pointsDelivered:optional('pointsDelivered'),epics:get('epics').trim(),notes:get('notes').trim()};});return next;}

@@ -144,3 +144,44 @@ les factures reçues de son PO et voit une alerte dans le cockpit lorsqu’une
 facture à valider présente un écart de montant. Lassaad valide les
 imputations par projet et profil pour le mois choisi avant de créer la
 facture fournisseur.
+
+## Fiche mensuelle membre CDS
+
+Sur l’instance Render, choisissez **Membre CDS**, puis connectez-vous avec
+votre adresse Jira et votre mot de passe du cockpit. **Actualiser depuis
+Jira** lit les tickets OP de type Story, Technical Story, Bug et Defect
+ayant atteint Done pendant le mois. La fiche retient les périodes
+d’assignation au membre dans le mois, jusqu’au dernier passage en Done.
+Les heures ouvrées couvrent le lundi au vendredi, de 9 h à 18 h en heure
+de Paris. Les temps saisis dans Jira restent une colonne de comparaison.
+
+La validation fige la fiche. Lassaad la retrouve ensuite dans **Fiches CDS**
+pour son contrôle. Ce parcours ne transforme pas la durée d’assignation
+en jours facturables et n’alimente pas automatiquement les ventilations.
+
+Le pilote est configuré côté serveur avec `CDS_MEMBER_EMAIL`,
+`CDS_MEMBER_NAME`, `CDS_MEMBER_JIRA_ID` et `CDS_MEMBER_PASSWORD`.
+Les identifiants Jira `JIRA_EMAIL` et `JIRA_API_TOKEN` sont ceux du
+compte de lecture. Le jeton doit permettre de lire les historiques et
+les temps sur OP.
+
+### Lancer l’extraction en ligne de commande
+
+Python 3.11 ou supérieur. Le script utilise la bibliothèque standard.
+Chargez les variables Jira dans l’environnement et lancez depuis la
+racine du dépôt :
+
+```bash
+python3 scripts/jira_assignee_time.py --project OP --month 2026-11 --assignee "Prénom NOM" --business-hours
+```
+
+Les trois CSV sont écrits dans `output/` par défaut. Le filtre
+`--assignee` accepte aussi un accountId Jira. Le CLI mesure les périodes
+depuis la création du ticket. Utilisez `--clip-month` pour reproduire le
+périmètre mensuel de la fiche cockpit. Les CSV séparent périodes, totaux
+par ticket et totaux par personne. Un temps de comparaison peut être
+indisponible si le compte Jira ne dispose pas des droits nécessaires.
+
+```bash
+python3 -m pytest scripts/test_jira_assignee_time.py
+```

@@ -48,7 +48,7 @@ export function sessions(db, passwords) {
   };
 }
 
-export function loginPage(res, error = '') {
+export function loginPage(res, error = '', memberEnabled = false) {
   res.writeHead(error ? 401 : 200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Connexion · Cockpit CDS</title><link rel="stylesheet" href="/style.css"></head>
@@ -62,7 +62,9 @@ export function loginPage(res, error = '') {
       <label><input type="radio" name="role" value="laurent" required><span><strong>Laurent</strong><small>Accor · Owner du PO</small></span></label>
       <label><input type="radio" name="role" value="jennifer"><span><strong>Jennifer</strong><small>Accor · Pilotage</small></span></label>
       <label><input type="radio" name="role" value="lassaad"><span><strong>Lassaad</strong><small>Fournisseur · Responsable CDS</small></span></label>
+      ${memberEnabled ? '<label><input type="radio" name="role" value="member"><span><strong>Membre CDS</strong><small>Ma fiche d’imputation</small></span></label>' : ''}
     </fieldset>
+    ${memberEnabled ? '<label class="field auth-member-email">E-mail Jira<input type="email" name="email" autocomplete="username"></label>' : ''}
     <label class="field">Mot de passe<input type="password" name="password" autocomplete="current-password" required></label>
     ${error ? '<p role="alert" class="text-red">Identifiant ou mot de passe incorrect.</p>' : ''}
     <button type="submit" class="btn teal">Se connecter</button>
