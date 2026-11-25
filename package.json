@@ -1,0 +1,11 @@
+{
+  "name": "cockpit-cds-poc",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 4173 --directory dist",
+    "test": "node --test tests/manual.test.mjs",
+    "check": "node --check dist/app.js && node --check dist/domain.js && node --check dist/views.js"
+  }
+}
