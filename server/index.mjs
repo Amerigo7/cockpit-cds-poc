@@ -4,6 +4,7 @@ import pg from 'pg';
 import { initialStore, getInvoiceForMonth, isPoOwner, visiblePoInvoices, moneyRound } from '../dist/domain.js';
 import { applyAction } from './actions.mjs';
 import { sessions, loginPage } from './session.mjs';
+import { resetReceiptWorkspace } from './reset-receipt.mjs';
 import { searchEpics, verifyNewEpicLinks, previewWorklogs } from './jira.mjs';
 
 const roles = ['laurent', 'jennifer', 'lassaad'];
@@ -32,6 +33,8 @@ await db.query(`
     AND state #>> '{cockpits,0,invoices,0,id}' = 'invoice-e7677eea-0ae0-4672-b68f-3d3d0c18f262'
     AND state #>> '{cockpits,0,invoices,0,reviewNote}' = 'Recette du POC partagé'
 `);
+
+await resetReceiptWorkspace(db);
 
 const assets = { '/': ['index.html', 'text/html'], '/style.css': ['style.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'], '/views.js': ['views.js', 'text/javascript'], '/domain.js': ['domain.js', 'text/javascript'] };
 function json(res, status, payload) {
