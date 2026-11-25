@@ -22,6 +22,10 @@ ISSUE_TYPES = "Story,Technical Story,Bug,Defect"
 
 
 def parse_date(value):
+    if isinstance(value, (int, float)):
+        # Bulk changelog uses Unix timestamps; individual histories use ISO.
+        seconds = value / 1000 if abs(value) >= 100_000_000_000 else value
+        return datetime.fromtimestamp(seconds, PARIS)
     return datetime.fromisoformat(value).astimezone(PARIS)
 
 

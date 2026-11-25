@@ -45,3 +45,13 @@ def test_weekend_ignored():
     a = parse_date("2026-11-06T15:00:00+01:00")
     b = parse_date("2026-11-09T10:30:00+01:00")
     assert business_hours_between(a, b) == 4.5
+
+
+def test_bulk_history_unix_timestamp():
+    done = parse_date("2026-11-03T12:00:00+01:00")
+    for timestamp in [int(done.timestamp()), int(done.timestamp() * 1000)]:
+        change = entry("2026-11-03T12:00:00", "status", after="Done")
+        change["created"] = timestamp
+        observed, intervals = build_periods(issue(), [change], "2026-11")
+        assert observed == done
+        assert intervals[0][3] == done
