@@ -53,6 +53,18 @@ def business_hours_between(start, end):
     return total
 
 
+def unique_business_hours(intervals):
+    """Intersect the union of actual assignment intervals with Paris business hours."""
+    merged = []
+    for start, end in sorted(intervals, key=lambda pair: pair[0].timestamp()):
+        if merged and start.timestamp() <= merged[-1][1].timestamp():
+            if end.timestamp() > merged[-1][1].timestamp():
+                merged[-1] = (merged[-1][0], end)
+        else:
+            merged.append((start, end))
+    return sum(business_hours_between(start, end) for start, end in merged)
+
+
 def build_periods(issue, history, month, done_statuses=("Done",), clip_month=False):
     """Return the last in-month Done and the assignment intervals that precede it."""
     first, following = month_bounds(month)
@@ -226,6 +238,7 @@ def report(client, project, types, statuses, month, assignee=None, business=Fals
     issues = search_issues(client, project, types, statuses, month)
     histories = fetch_changelogs(client, issues)
     details, tickets, people = [], [], {}
+    person_intervals = defaultdict(list)
     for issue in issues:
         key, fields = issue["key"], issue["fields"]
         done, intervals = build_periods(issue, histories[key], month, statuses, clip_month)
@@ -242,6 +255,7 @@ def report(client, project, types, statuses, month, assignee=None, business=Fals
                           assignee_accountId=account, assignee_name=name, start=start.isoformat(), end=end.isoformat(),
                           hours_calendar=round(calendar, 2), hours_business=round(working, 2) if business else None)
             details.append(detail)
+            person_intervals[account].append((start, end))
             subtotal = selected.setdefault(account, [name, 0.0, 0.0])
             subtotal[1] += calendar
             subtotal[2] += working or 0
@@ -253,14 +267,14 @@ def report(client, project, types, statuses, month, assignee=None, business=Fals
             tickets.append(dict(key=key, summary=fields["summary"], issuetype=fields["issuetype"]["name"],
                                 done_date=done.isoformat(), assignee_name=name, hours_calendar=round(calendar, 2),
                                 hours_business=round(working, 2) if business else None, worklog_hours=round(worklog, 2)))
-            person = people.setdefault(account, [name, set(), 0.0, 0.0, 0.0])
+            person = people.setdefault(account, [name, set(), 0.0, 0.0])
             person[1].add(key)
             person[2] += calendar
-            person[3] += working
-            person[4] += worklog
+            person[3] += worklog
     totals = [dict(assignee_name=name, nb_tickets=len(keys), total_hours_calendar=round(cal, 2),
-                   total_hours_business=round(working, 2) if business else None, total_worklog_hours=round(logged, 2))
-              for name, keys, cal, working, logged in people.values()]
+                   total_hours_business=round(unique_business_hours(person_intervals[account]), 2) if business else None,
+                   total_worklog_hours=round(logged, 2))
+              for account, (name, keys, cal, logged) in people.items()]
     logging.info("%d périodes et %d lignes par ticket.", len(details), len(tickets))
     return dict(periods=details, tickets=tickets, people=totals, candidates=len(issues))
 

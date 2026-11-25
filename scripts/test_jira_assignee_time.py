@@ -69,3 +69,23 @@ def test_search_does_not_filter_issue_type_by_default():
             return {"issues": [], "isLast": True}
 
     assert search_issues(JiraFixture(), "OP", [], ["Done"], "2026-11") == []
+
+
+def test_monthly_business_hours_merge_overlap_and_stop_at_reassignment():
+    from jira_assignee_time import unique_business_hours
+
+    first = [
+        entry("2026-11-02T08:00:00", "assignee", after="a"),
+        entry("2026-11-02T13:30:00", "assignee", before="a", after="b"),
+        entry("2026-11-03T15:00:00", "status", after="Done"),
+    ]
+    second = [
+        entry("2026-11-02T11:00:00", "assignee", after="a"),
+        entry("2026-11-02T20:00:00", "status", after="Done"),
+    ]
+    parts = []
+    for changes in (first, second):
+        _, intervals = build_periods(issue(), changes, "2026-11", clip_month=True)
+        parts.extend((start, end) for account, _, start, end in intervals if account == "a")
+    assert [business_hours_between(*pair) for pair in parts] == [4.5, 7]
+    assert unique_business_hours(parts) == 9

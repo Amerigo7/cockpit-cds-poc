@@ -152,7 +152,7 @@ votre adresse Jira et votre mot de passe du cockpit. **Actualiser depuis
 Jira** lit les tickets OP ayant atteint Done pendant le mois, quel que soit leur type. La fiche retient les périodes
 d’assignation au membre dans le mois, jusqu’au dernier passage en Done.
 Les heures ouvrées couvrent le lundi au vendredi, de 9 h à 18 h en heure
-de Paris. Seules ces heures entrent dans la fiche. Conversion sans arrondi à la demi-journée : 9 h = 1 j et 4,5 h = 0,5 j. Les temps saisis dans Jira restent une colonne de comparaison.
+de Paris. Seules ces heures entrent dans la fiche. Conversion sans arrondi à la demi-journée : 9 h = 1 j et 4,5 h = 0,5 j. Le total mensuel fusionne les périodes d’assignation qui se chevauchent. Le détail reste disponible par ticket. Les temps saisis dans Jira restent une colonne de comparaison.
 
 La validation fige la fiche. Lassaad la retrouve ensuite dans **Fiches CDS**
 pour son contrôle. Ce parcours ne transforme pas la durée d’assignation
