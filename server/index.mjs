@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { initialStore } from '../dist/domain.js';
 import { applyAction } from './actions.mjs';
+import { searchEpics, verifyNewEpicLinks } from './jira.mjs';
 
 const roles = ['laurent', 'jennifer', 'lassaad'];
 const passwords = Object.fromEntries(roles.map(role => [role, process.env[role.toUpperCase() + '_PASSWORD']]));
@@ -43,9 +44,8 @@ function json(res, status, payload) {
 }
 function visibleState(state, role) {
   const copy = structuredClone(state);
-  const cockpit = copy.cockpits[0];
   if (role !== 'lassaad') {
-    for (const invoice of cockpit.invoices) {
+    for (const invoice of copy.cockpits.flatMap(cockpit => cockpit.invoices)) {
       const visible = role === 'laurent' && ['sent', 'returned', 'validated'].includes(invoice.status);
       if (visible) continue;
       delete invoice.supplierNote;
@@ -70,7 +70,8 @@ createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
-  const path = new URL(req.url, 'http://localhost').pathname;
+  const requestUrl = new URL(req.url, 'http://localhost');
+  const path = requestUrl.pathname;
   if (path === '/healthz' && req.method === 'GET') return json(res, 200, { ok: true });
   const role = authenticatedRole(req);
   if (!role) {
@@ -78,6 +79,20 @@ createServer(async (req, res) => {
     return json(res, 401, { error: 'Identifiants du testeur requis.' });
   }
   try {
+    if (path === '/api/jira/epics' && req.method === 'GET') {
+      if (role === 'lassaad') return json(res, 403, { error: 'Recherche Jira réservée à Accor.' });
+      try {
+        const result = await searchEpics({
+          query: requestUrl.searchParams.get('q') || '',
+          cursor: requestUrl.searchParams.get('cursor') || undefined
+        });
+        return json(res, 200, result);
+      } catch (error) {
+        const message = error.name === 'TimeoutError' || error instanceof TypeError
+          ? 'Jira OP est momentanément indisponible.' : error.message;
+        return json(res, 503, { error: message });
+      }
+    }
     if (path === '/api/state' && req.method === 'GET') {
       const { rows: [row] } = await db.query('SELECT revision, state FROM cockpit WHERE id = 1');
       return json(res, 200, { role, revision: row.revision, store: visibleState(row.state, role) });
@@ -86,13 +101,16 @@ createServer(async (req, res) => {
       if (req.headers['sec-fetch-site'] !== 'same-origin' || req.headers['content-type'] !== 'application/json') {
         return json(res, 403, { error: 'Requête hors du cockpit.' });
       }
-      const { revision, action, args } = await readBody(req);
+      const { revision, action, args, cockpitId } = await readBody(req);
       const { rows: [row] } = await db.query('SELECT revision, state FROM cockpit WHERE id = 1');
       const conflict = () => json(res, 409, { error: 'Le PO a changé depuis votre dernière lecture. Copiez votre saisie si nécessaire, puis actualisez la page avant de réessayer.' });
       if (revision !== row.revision) return conflict();
       let result;
       try {
-        result = applyAction(row.state, role, action, args);
+        const current = row.state.cockpits.find(c => c.id === (cockpitId ?? row.state.activeId));
+        const existingProjects = current?.projects;
+        result = applyAction(row.state, role, action, args, cockpitId);
+        if (action === 'definition') await verifyNewEpicLinks({ projects: existingProjects }, result.projects);
       } catch (error) {
         return json(res, 400, { error: error.message });
       }

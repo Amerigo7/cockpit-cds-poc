@@ -110,3 +110,22 @@ dans **Settings → Pages**, puis lancez le workflow.
 
 Chaque navigateur conserve son propre état de démonstration. Les
 contributions sur GitHub partagent le code et les discussions de revue.
+
+## Instance partagée et Jira OP
+
+Laurent et Jennifer créent les PO avec **Nouveau PO** et gardent un cockpit
+par référence. Chaque navigateur sélectionne son PO indépendamment. Les
+ventilations et factures restent rattachées au PO sélectionné.
+
+Dans **Initialisation**, ouvrez **Choisir les epics Jira OP** sur un projet.
+Cherchez par clé ou titre, choisissez les epics puis enregistrez le
+paramétrage. Pour une epic créée plus tard, relancez la recherche depuis
+le même projet. Les clés rattachées définissent le périmètre Jira du projet.
+La ventilation des jours reste manuelle.
+
+L’instance partagée interroge Jira Cloud depuis le serveur. Renseignez
+`JIRA_EMAIL` et `JIRA_API_TOKEN` dans Render avec un compte autorisé à
+consulter OP et un jeton de lecture compatible avec l’API de recherche Jira.
+Le catalogue est accessible à Laurent et Jennifer. Les secrets restent
+dans l’environnement du serveur. La démo statique conserve la saisie
+manuelle des clés.

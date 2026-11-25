@@ -1,7 +1,20 @@
 import * as D from '../dist/domain.js';
 
-export function applyAction(store, who, action, args) {
-  const cockpit = store.cockpits[0];
+export function applyAction(store, who, action, args, cockpitId) {
+  if (action === 'newCockpit') {
+    if (!['laurent', 'jennifer'].includes(who)) throw Error('Action non disponible pour ce profil');
+    const ref = typeof args[0] === 'string' ? args[0].trim().replace(/^#/, '').trim() : '';
+    if (!ref || ref.length > 80) throw Error('Référence du PO obligatoire (80 caractères au maximum).');
+    if (store.cockpits.some(c => c.poRef.toUpperCase() === ref.toUpperCase())) {
+      throw Error('Ce PO dispose déjà d’un cockpit.');
+    }
+    const cockpit = D.newCockpit();
+    cockpit.poRef = ref;
+    store.cockpits.push(cockpit);
+    return cockpit;
+  }
+  const cockpit = store.cockpits.find(c => c.id === (cockpitId ?? store.activeId));
+  if (!cockpit) throw Error('PO introuvable. Actualisez la page.');
   switch (action) {
     case 'definition': {
       const [input, activate] = args;

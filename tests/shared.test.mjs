@@ -18,3 +18,18 @@ test('Jennifer active le PO, Lassaad transmet et seul Laurent impute la facture'
   applyAction(store, 'laurent', 'review', [invoice.id, '', 'validate']);
   assert.equal(finances(c).actual, 950);
 });
+
+test('les PO partagés sont indépendants et leurs références sont uniques', () => {
+  const store = initialStore();
+  const original = store.cockpits[0];
+  const second = applyAction(store, 'jennifer', 'newCockpit', ['#124178']);
+  assert.equal(second.poRef, '124178');
+  assert.notEqual(second.id, original.id);
+  assert.equal(store.activeId, original.id);
+  assert.throws(() => applyAction(store, 'laurent', 'newCockpit', ['124178']), /déjà/);
+  assert.throws(() => applyAction(store, 'lassaad', 'newCockpit', ['124179']), /profil/);
+  const update = { ...structuredClone(second), name: 'Autre portefeuille' };
+  applyAction(store, 'laurent', 'definition', [update, false], second.id);
+  assert.equal(second.name, 'Autre portefeuille');
+  assert.notEqual(original.name, second.name);
+});
