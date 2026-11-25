@@ -3,7 +3,10 @@ const epicFilter = 'project = OP AND issuetype = Epic';
 const keyPattern = /^OP-[1-9]\d*$/;
 
 export async function searchEpics({ query = '', cursor, keys } = {}, fetcher = fetch, env = process.env) {
-  if (!env.JIRA_EMAIL || !env.JIRA_API_TOKEN) throw Error('La connexion Jira OP doit être configurée sur le serveur.');
+  const email = env.JIRA_EMAIL?.trim();
+  const token = env.JIRA_API_TOKEN?.trim();
+  const missing = [!email && 'JIRA_EMAIL', !token && 'JIRA_API_TOKEN'].filter(Boolean);
+  if (missing.length) throw Error('Configuration Jira OP manquante : ' + missing.join(', '));
   const term = query.trim().slice(0, 80);
   let filter = '';
   if (keys) {
@@ -16,7 +19,7 @@ export async function searchEpics({ query = '', cursor, keys } = {}, fetcher = f
     if (!words) return { epics: [], cursor: null };
     filter = ' AND summary ~ "' + words + '"';
   }
-  const auth = Buffer.from(env.JIRA_EMAIL + ':' + env.JIRA_API_TOKEN).toString('base64');
+  const auth = Buffer.from(email + ':' + token).toString('base64');
   const response = await fetcher('https://api.atlassian.com/ex/jira/' + cloud + '/rest/api/3/search/jql', {
     method: 'POST',
     redirect: 'error',
