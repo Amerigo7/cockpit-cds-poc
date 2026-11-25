@@ -6,7 +6,9 @@ const validate = $('member-validate');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const when = new Intl.DateTimeFormat('fr-FR',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Paris'});
-month.value = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Paris',year:'numeric',month:'2-digit'}).format(new Date());
+const currentMonth = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Paris',year:'numeric',month:'2-digit'}).format(new Date());
+month.value = currentMonth;
+$('activity-panel').hidden = month.value !== currentMonth;
 let current = null, busy = false;
 async function read(action) {
   if (busy || !month.value) return;
@@ -41,6 +43,7 @@ async function read(action) {
 }
 month.addEventListener('change', () => {
   current = null;
+  $('activity-panel').hidden = month.value !== currentMonth;
   validate.hidden = true;
   $('member-summary').textContent = '';
   $('member-results').textContent = '';
@@ -51,3 +54,32 @@ validate.addEventListener('click', () => {
   if (current && confirm('Valider définitivement la fiche pour ce mois ?')) read('validate');
 });
 read();
+
+
+$('member-activity').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  const feedback = $('activity-status');
+  const results = $('activity-results');
+  button.disabled = true;
+  feedback.textContent = 'Calcul des périodes d’assignation dans Jira…';
+  results.textContent = '';
+  try {
+    const response = await fetch('/api/member/sheet?' + new URLSearchParams({month:currentMonth}), {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'activity'})
+    });
+    if (response.status === 401) { location.replace('/'); return; }
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error);
+    const { activity } = data;
+    const totals = activity.totals;
+    feedback.textContent = totals
+      ? number.format(totals.total_hours_business) + ' h ouvrées sans doublon · ' + number.format(totals.total_business_days) + ' j · Calcul arrêté le ' + when.format(new Date(activity.asOf))
+      : 'Aucune période d’assignation éligible trouvée pour le mois en cours.';
+    if (!totals) return;
+    results.innerHTML = `<table><thead><tr><th>Ticket</th><th>Statut Jira</th><th>Périodes d’assignation</th><th>Jours (9 h / j)</th></tr></thead><tbody>${activity.tickets.map(ticket => `<tr><td><a href="https://accor-it.atlassian.net/browse/${escape(ticket.key)}" target="_blank" rel="noopener noreferrer">${escape(ticket.key)}</a><br>${escape(ticket.summary)}</td><td>${escape(ticket.status)}</td><td><details><summary>${number.format(ticket.hours_business)} h ouvrées</summary>${activity.periods.filter(p=>p.key===ticket.key).map(p=>`<div>${when.format(new Date(p.start))} → ${when.format(new Date(p.end))} · ${number.format(p.hours_business)} h ouvrées</div>`).join('')}</details></td><td>${number.format(ticket.business_days)} j</td></tr>`).join('')}</tbody></table>`;
+  } catch (error) {
+    feedback.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});

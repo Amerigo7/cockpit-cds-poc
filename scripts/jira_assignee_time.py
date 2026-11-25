@@ -65,7 +65,7 @@ def unique_business_hours(intervals):
     return sum(business_hours_between(start, end) for start, end in merged)
 
 
-def build_periods(issue, history, month, done_statuses=("Done",), clip_month=False):
+def build_periods(issue, history, month, done_statuses=("Done",), clip_month=False, as_of=None):
     """Return the last in-month Done and the assignment intervals that precede it."""
     first, following = month_bounds(month)
     statuses = {value.casefold() for value in done_statuses}
@@ -79,9 +79,12 @@ def build_periods(issue, history, month, done_statuses=("Done",), clip_month=Fal
                 transitions.append(when)
             if field == "assignee":
                 assignments.append((when, item))
-    if not transitions:
+    done = max((when for when in transitions if as_of is None or when <= as_of), default=None)
+    current_status = issue["fields"].get("status") or {}
+    ongoing = as_of is not None and (current_status.get("statusCategory") or {}).get("key") == "indeterminate"
+    end = min(as_of, following) if ongoing else done
+    if end is None or end <= first:
         return None, []
-    end = max(transitions)
     fields = issue["fields"]
     start = parse_date(fields["created"])
     current = fields.get("assignee") or {}
@@ -104,7 +107,7 @@ def build_periods(issue, history, month, done_statuses=("Done",), clip_month=Fal
         start = max(start, when)
         account, name = change.get("to"), change.get("toString")
     append(start, end, account, name)
-    return end, intervals
+    return done, intervals
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -147,13 +150,15 @@ def quoted(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def search_issues(client, project, types, statuses, month):
+def search_issues(client, project, types, statuses, month, ongoing_assignee=None):
     start, end = month_bounds(month)
     project = project.strip().upper()
     if not re.fullmatch(r"[A-Z][A-Z0-9_]*", project):
         raise ValueError("Clé de projet invalide.")
     window = f'DURING ("{start:%Y-%m-%d %H:%M}", "{end:%Y-%m-%d %H:%M}")'
     changes = " OR ".join(f"status CHANGED TO {quoted(status)} {window}" for status in statuses)
+    if ongoing_assignee:
+        changes += f' OR (statusCategory = "In Progress" AND assignee WAS {quoted(ongoing_assignee)})'
     type_filter = f" AND issuetype IN ({','.join(map(quoted, types))})" if types else ""
     jql = f"project = {project}{type_filter} AND ({changes}) ORDER BY key"
     params = {"jql": jql, "fields": "summary,issuetype,status,assignee,created,timespent", "maxResults": 100}
@@ -234,15 +239,15 @@ def fetch_worklogs(client, key, month=None):
     return totals
 
 
-def report(client, project, types, statuses, month, assignee=None, business=False, clip_month=False):
-    issues = search_issues(client, project, types, statuses, month)
+def report(client, project, types, statuses, month, assignee=None, business=False, clip_month=False, as_of=None):
+    issues = search_issues(client, project, types, statuses, month, assignee if as_of else None)
     histories = fetch_changelogs(client, issues)
     details, tickets, people = [], [], {}
     person_intervals = defaultdict(list)
     for issue in issues:
         key, fields = issue["key"], issue["fields"]
-        done, intervals = build_periods(issue, histories[key], month, statuses, clip_month)
-        if done is None:
+        done, intervals = build_periods(issue, histories[key], month, statuses, clip_month, as_of)
+        if not intervals:
             logging.info("%s ignoré : aucune transition Done confirmée dans le mois.", key)
             continue
         selected = {}
@@ -261,12 +266,16 @@ def report(client, project, types, statuses, month, assignee=None, business=Fals
             subtotal[2] += working or 0
         if not selected:
             continue
-        logs = fetch_worklogs(client, key, month if clip_month else None)
+        logs = {} if as_of else fetch_worklogs(client, key, month if clip_month else None)
         for account, (name, calendar, working) in selected.items():
             worklog = logs.get(account, 0) / 3600 if account else 0
             tickets.append(dict(key=key, summary=fields["summary"], issuetype=fields["issuetype"]["name"],
-                                done_date=done.isoformat(), assignee_name=name, hours_calendar=round(calendar, 2),
+                                done_date=done.isoformat() if done else None, assignee_name=name, hours_calendar=round(calendar, 2),
                                 hours_business=round(working, 2) if business else None, worklog_hours=round(worklog, 2)))
+            if as_of:
+                status = fields.get("status") or {}
+                tickets[-1]["status"] = status.get("name")
+                tickets[-1]["ongoing"] = (status.get("statusCategory") or {}).get("key") == "indeterminate"
             person = people.setdefault(account, [name, set(), 0.0, 0.0])
             person[1].add(key)
             person[2] += calendar
@@ -276,7 +285,7 @@ def report(client, project, types, statuses, month, assignee=None, business=Fals
                    total_worklog_hours=round(logged, 2))
               for account, (name, keys, cal, logged) in people.items()]
     logging.info("%d périodes et %d lignes par ticket.", len(details), len(tickets))
-    return dict(periods=details, tickets=tickets, people=totals, candidates=len(issues))
+    return dict(periods=details, tickets=tickets, people=totals, candidates=len(issues), as_of=as_of.isoformat() if as_of else None)
 
 
 def write_csv(directory, data):
@@ -305,6 +314,7 @@ def main():
     parser.add_argument("--business-hours", action="store_true")
     parser.add_argument("--clip-month", action="store_true")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--activity", action="store_true", help="Aperçu du mois en cours : Done et en cours, arrêté maintenant.")
     parser.add_argument("--out-dir", type=Path, default=Path("output"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -316,8 +326,11 @@ def main():
         statuses = [value.strip() for value in args.done_statuses.split(",") if value.strip()]
         if not statuses:
             raise ValueError("Précisez les statuts Jira.")
+        as_of = datetime.now(PARIS) if args.activity else None
+        if as_of and (not args.assignee or not args.json or args.month != as_of.strftime("%Y-%m")):
+            raise ValueError("La vue activité exige un assignee, le mois en cours et --json.")
         data = report(Jira(email, token), args.project, types, statuses, args.month, args.assignee,
-                      args.business_hours, args.clip_month)
+                      args.business_hours, args.clip_month or args.activity, as_of)
         if args.json:
             print(json.dumps(data, ensure_ascii=False))
         else:

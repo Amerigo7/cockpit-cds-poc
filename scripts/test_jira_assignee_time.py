@@ -89,3 +89,27 @@ def test_monthly_business_hours_merge_overlap_and_stop_at_reassignment():
         parts.extend((start, end) for account, _, start, end in intervals if account == "a")
     assert [business_hours_between(*pair) for pair in parts] == [4.5, 7]
     assert unique_business_hours(parts) == 9
+
+
+def test_in_progress_as_of_and_reassignment():
+    ticket = issue("b")
+    ticket["fields"]["status"] = {"name": "In Progress", "statusCategory": {"key": "indeterminate"}}
+    changes = [
+        entry("2026-11-02T10:00:00", "assignee", after="a"),
+        entry("2026-11-03T12:00:00", "assignee", before="a", after="b"),
+    ]
+    cutoff = parse_date("2026-11-04T14:00:00+01:00")
+    done, intervals = build_periods(ticket, changes, "2026-11", clip_month=True, as_of=cutoff)
+    assert done is None
+    assert intervals[1][0] == "a"
+    assert intervals[1][3] == parse_date("2026-11-03T12:00:00+01:00")
+    assert intervals[-1][3] == cutoff
+
+
+def test_done_in_activity_stops_at_done():
+    ticket = issue()
+    ticket["fields"]["status"] = {"name": "Done", "statusCategory": {"key": "done"}}
+    changes = [entry("2026-11-02T12:00:00", "status", after="Done")]
+    done, intervals = build_periods(ticket, changes, "2026-11", clip_month=True,
+                                    as_of=parse_date("2026-11-04T14:00:00+01:00"))
+    assert intervals[-1][3] == done

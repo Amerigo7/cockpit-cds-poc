@@ -40,32 +40,49 @@ export async function getMemberSheet(db, member, month) {
   return row ? { ...businessSheet(row.snapshot), version: row.version, validatedAt: row.validated_at } : null;
 }
 
+async function extractSheet(member, month, activity = false) {
+  let stdout;
+  try {
+    ({ stdout } = await execute('python3', [
+      extractor, '--month', month, '--assignee', member.account, '--business-hours', '--clip-month', '--json', ...(activity ? ['--activity'] : [])
+    ], {
+      timeout: 26000,
+      maxBuffer: 4 * 1024 * 1024,
+      env: { PATH: process.env.PATH, JIRA_EMAIL: process.env.JIRA_EMAIL, JIRA_API_TOKEN: process.env.JIRA_API_TOKEN }
+    }));
+  } catch (error) {
+    const status = String(error.stderr || '').match(/HTTP (\d{3})/)?.[1];
+    throw Error(status ? 'Lecture Jira impossible (HTTP ' + status + ').' : 'La lecture Jira n’a pas abouti. Réessayez.');
+  }
+  const report = JSON.parse(stdout);
+  return businessSheet({
+    tickets: report.tickets,
+    periods: report.periods.map(({assignee_accountId, ...period}) => period),
+    totals: report.people[0] || null,
+    loadedAt: new Date().toISOString(),
+    ...(activity ? { asOf: report.as_of } : {})
+  });
+}
+
+export async function readMemberActivity(member, month) {
+  const currentMonth = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit'
+  }).format(new Date());
+  if (month !== currentMonth) throw Error('L’activité à aujourd’hui est disponible pour le mois en cours.');
+  const key = member.email + ':' + month + ':activity';
+  if (extraction.has(key)) return extraction.get(key);
+  const run = extractSheet(member, month, true);
+  extraction.set(key, run);
+  try { return await run; } finally { extraction.delete(key); }
+}
+
 export async function refreshMemberSheet(db, member, month) {
   const existing = await getMemberSheet(db, member, month);
   if (existing?.validatedAt) return existing;
   const key = member.email + ':' + month;
   if (extraction.has(key)) return extraction.get(key);
   const run = (async () => {
-    let stdout;
-    try {
-      ({ stdout } = await execute('python3', [
-        extractor, '--month', month, '--assignee', member.account, '--business-hours', '--clip-month', '--json'
-      ], {
-        timeout: 26000,
-        maxBuffer: 4 * 1024 * 1024,
-        env: { PATH: process.env.PATH, JIRA_EMAIL: process.env.JIRA_EMAIL, JIRA_API_TOKEN: process.env.JIRA_API_TOKEN }
-      }));
-    } catch (error) {
-      const status = String(error.stderr || '').match(/HTTP (\d{3})/)?.[1];
-      throw Error(status ? 'Lecture Jira impossible (HTTP ' + status + ').' : 'La lecture Jira n’a pas abouti. Réessayez.');
-    }
-    const report = JSON.parse(stdout);
-    const snapshot = businessSheet({
-      tickets: report.tickets,
-      periods: report.periods.map(({assignee_accountId, ...period}) => period),
-      totals: report.people[0] || null,
-      loadedAt: new Date().toISOString()
-    });
+    const snapshot = await extractSheet(member, month);
     await db.query(`
       INSERT INTO cds_member_sheet(email, month, snapshot) VALUES ($1,$2,$3)
       ON CONFLICT (email, month) DO UPDATE SET snapshot = EXCLUDED.snapshot, version = cds_member_sheet.version + 1
