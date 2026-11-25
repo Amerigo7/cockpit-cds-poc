@@ -72,62 +72,88 @@ function selectSharedCockpit(id) {
 }
 
 let epicPicker = null;
+function closeEpicPicker(restoreFocus = false) {
+  if (!epicPicker) return;
+  const { panel, trigger, debounce, controller } = epicPicker;
+  clearTimeout(debounce);
+  controller?.abort();
+  epicPicker = null;
+  panel.hidden = true;
+  panel.replaceChildren();
+  trigger.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) trigger.focus();
+}
 function openEpicPicker(id) {
   const field = document.querySelector('[data-project="' + CSS.escape(id) + '"]');
-  const input = field?.querySelector('[name="p-epics"]');
-  if (!input) return;
-  epicPicker = { input, field, selected: new Set(input.value.toUpperCase().split(/[\s,;]+/).filter(Boolean)), query: '', cursor: null };
-  modal.innerHTML = `<div class="dialog-header"><h2>Epics du projet Jira OP</h2><button type="button" class="close" data-action="close" aria-label="Fermer">×</button></div>
-    <div class="body"><form id="epic-search" class="inline"><label for="epic-query">Nom ou clé Jira</label><input id="epic-query" type="search" maxlength="80" placeholder="OP-123"><button class="btn">Rechercher</button></form>
-    <p id="epic-selection"></p><p id="epic-message" role="status"></p><div id="epic-results"></div>
-    <div class="inline"><button type="button" class="btn" data-action="epic-more" hidden>Résultats suivants</button>
-    <button type="button" class="btn teal" data-action="epic-apply">Appliquer au projet</button></div></div>`;
-  modal.showModal();
+  if (!field) return;
+  if (epicPicker?.field === field) return closeEpicPicker(true);
+  closeEpicPicker();
+  const input = field.querySelector('[name="p-epics"]');
+  const panel = field.querySelector('[data-epic-dropdown]');
+  const trigger = field.querySelector('.epic-trigger');
+  epicPicker = { input, field, panel, trigger, selected: new Set(input.value.toUpperCase().split(/[\s,;]+/).filter(Boolean)), query: '', cursor: null };
+  panel.innerHTML = `
+    <label class="epic-searchbox" for="epic-query"><span>Rechercher dans Jira OP</span><input id="epic-query" type="search" maxlength="80" placeholder="Nom ou clé, ex. OP-123" autocomplete="off"></label>
+    <div id="epic-selection" class="epic-selection"></div>
+    <p id="epic-message" class="epic-message" role="status"></p><div id="epic-results" class="epic-results" aria-label="Epics trouvées"></div>
+    <div class="epic-footer"><button type="button" class="btn" data-action="epic-more" hidden>Charger la suite</button>
+    <button type="button" class="btn" data-action="epic-cancel">Annuler</button>
+    <button type="button" class="btn teal" data-action="epic-apply">Appliquer au projet</button></div>`;
+  panel.hidden = false;
+  trigger.setAttribute('aria-expanded', 'true');
+  panel.querySelector('#epic-query').focus();
   updateEpicSelection();
   loadEpics();
 }
 function updateEpicSelection() {
-  document.getElementById('epic-selection').innerHTML = [...epicPicker.selected].map(key =>
-    `<button class="btn" data-action="epic-toggle" data-id="${V.h(key)}" type="button">${V.h(key)} · Retirer</button>`
-  ).join(' ') || 'Aucun epic sélectionné';
-  for (const button of modal.querySelectorAll('#epic-results [data-id]')) {
-    const selected = epicPicker.selected.has(button.dataset.id);
-    button.textContent = selected ? 'Retirer' : 'Rattacher';
-    button.setAttribute('aria-pressed', String(selected));
-  }
+  const {panel, selected} = epicPicker;
+  panel.querySelector('#epic-selection').innerHTML = selected.size
+    ? [...selected].map(key => `<button class="epic-chip" data-action="epic-toggle" data-id="${V.h(key)}" type="button" aria-label="Retirer ${V.h(key)}">${V.h(key)} <span aria-hidden="true">×</span></button>`).join('')
+    : '<span class="muted small">Aucune epic sélectionnée</span>';
+  for (const checkbox of panel.querySelectorAll('[data-epic-check]')) checkbox.checked = selected.has(checkbox.value);
 }
 async function loadEpics(more = false) {
   const picker = epicPicker;
   if (!picker || (more && (!picker.cursor || picker.loading))) return;
-  const request = Symbol();
-  picker.request = request;
+  picker.controller?.abort();
+  const controller = new AbortController();
+  picker.controller = controller;
   picker.loading = true;
   const params = new URLSearchParams({q: picker.query});
   if (more) params.set('cursor', picker.cursor);
-  const message = document.getElementById('epic-message');
-  const results = document.getElementById('epic-results');
-  const next = modal.querySelector('[data-action="epic-more"]');
+  const message = picker.panel.querySelector('#epic-message');
+  const results = picker.panel.querySelector('#epic-results');
+  const next = picker.panel.querySelector('[data-action="epic-more"]');
   if (!more) results.textContent = '';
   next.hidden = true;
   message.textContent = 'Recherche dans Jira OP…';
   try {
-    const response = await fetch('/api/jira/epics?' + params);
+    const response = await fetch('/api/jira/epics?' + params, {signal:controller.signal});
     const data = await response.json();
-    if (epicPicker !== picker || picker.request !== request) return;
+    if (epicPicker !== picker || picker.controller !== controller) return;
     if (!response.ok) throw Error(data.error);
     picker.cursor = data.cursor;
     results.insertAdjacentHTML('beforeend', data.epics.map(epic =>
-      `<div class="epic-result"><a target="_blank" rel="noopener noreferrer" href="https://accor-it.atlassian.net/browse/${V.h(epic.key)}">${V.h(epic.key)}</a> · ${V.h(epic.title)} <button class="btn" type="button" data-action="epic-toggle" data-id="${V.h(epic.key)}"></button></div>`
+      `<label class="epic-option"><input type="checkbox" data-epic-check value="${V.h(epic.key)}"><span><strong>${V.h(epic.title || epic.key)}</strong><small>${V.h(epic.key)}</small></span></label>`
     ).join(''));
-    message.textContent = !data.epics.length && !more ? 'Aucun résultat.' : '';
+    message.textContent = !data.epics.length && !more ? 'Aucune epic trouvée.' : '';
     next.hidden = !picker.cursor;
     updateEpicSelection();
   } catch (error) {
-    if (epicPicker === picker && picker.request === request) message.textContent = error.message;
+    if (epicPicker === picker && picker.controller === controller && !controller.signal.aborted) message.textContent = error.message;
   } finally {
-    if (picker.request === request) picker.loading = false;
+    if (picker.controller === controller) picker.loading = false;
   }
 }
+document.addEventListener('keydown', event => {
+  if (!epicPicker?.panel.contains(event.target)) return;
+  if (event.key === 'Escape') { event.preventDefault(); closeEpicPicker(true); }
+  if (event.key === 'Enter' && event.target.id === 'epic-query') {
+    event.preventDefault();
+    clearTimeout(epicPicker.debounce);
+    loadEpics();
+  }
+});
 
 let jiraPreview = null;
 async function openJiraWorklogs() {
@@ -197,9 +223,9 @@ function applyJiraWorklogs() {
 }
 
 function abandon(){return !dirty||confirm('Des modifications ne sont pas enregistrées. Les abandonner ?');}
-function closeModal(){if(modalDirty&&!confirm('Abandonner les modifications de la facture ?'))return false;modal.close();epicPicker=null;jiraPreview=null;modalDirty=false;modalInvoice=null;return true;}
+function closeModal(){if(modalDirty&&!confirm('Abandonner les modifications de la facture ?'))return false;modal.close();jiraPreview=null;modalDirty=false;modalInvoice=null;return true;}
 function availableMonth(c){const months=D.monthsBetween(c.start,c.end).filter(m=>!c.openingMonth||m>c.openingMonth);return months.includes(selectedMonth)?selectedMonth:months.includes(c.reportMonth)?c.reportMonth:months[0]||'';}
-function render(){if(!who){root.innerHTML=V.login();return;}const c=current();selectedMonth=availableMonth(c);if(tab==='setup'&&!setupDraft)setupDraft=structuredClone(c);const body=tab==='setup'?V.setup(setupDraft,shared):tab==='allocation'?V.allocation(c,selectedMonth,shared):tab==='invoices'?V.invoices(c,who):tab==='guide'?V.guide(c,shared,who,onboarding):V.budget(c,who);root.innerHTML=V.shell(store,who,tab,body,shared);dirty=false;if(tab==='setup')updateSplit();if(tab==='allocation')updateAllocation();}
+function render(){closeEpicPicker();if(!who){root.innerHTML=V.login();return;}const c=current();selectedMonth=availableMonth(c);if(tab==='setup'&&!setupDraft)setupDraft=structuredClone(c);const body=tab==='setup'?V.setup(setupDraft,shared):tab==='allocation'?V.allocation(c,selectedMonth,shared):tab==='invoices'?V.invoices(c,who):tab==='guide'?V.guide(c,shared,who,onboarding):V.budget(c,who);root.innerHTML=V.shell(store,who,tab,body,shared);dirty=false;if(tab==='setup')updateSplit();if(tab==='allocation')updateAllocation();}
 function value(form,name){return form.elements.namedItem(name)?.value??'';}
 function number(form,name){const raw=value(form,name).trim();return raw===''?0:Number(raw);}
 function readDefinition(){const form=document.getElementById('setup-form'),base=setupDraft||current();if(!form)return structuredClone(base);const next={...structuredClone(base)};for(const name of ['name','poRef','start','end','reportMonth','openingMonth','owner','coOwner','supplier'])next[name]=value(form,name).trim();for(const name of ['year','budget','monthlyDays'])next[name]=number(form,name);next.rates=Object.fromEntries(D.ROLES.map(r=>[r.id,number(form,`rate-${r.id}`)]));next.projects=[...form.querySelectorAll('[data-project]')].map(el=>{const p=base.projects.find(p=>p.id===el.dataset.project);const get=name=>el.querySelector(`[name="p-${name}"]`)?.value??'';const optional=name=>get(name).trim()===''?null:Number(get(name));return {...p,name:get('name').trim(),category:get('category'),budget:Number(get('budget')||0),start:get('start'),end:get('end'),openingValidated:Number(get('openingValidated')||0),device:Object.fromEntries(D.ROLES.map(r=>[r.id,Number(get('device-'+r.id)||0)])),pointsPlanned:optional('pointsPlanned'),pointsDelivered:optional('pointsDelivered'),epics:get('epics').trim(),notes:get('notes').trim()};});return next;}
@@ -222,7 +248,7 @@ document.addEventListener('click',async event=>{const b=event.target.closest('[d
     return;
   }
   who='';setupDraft=null;render();
-}else if(action==='help-continue'){onboarding=false;tab=who==='lassaad'?'allocation':'budget';render();}else if(action==='nav'){if(!abandon())return;onboarding=false;tab=id;setupDraft=null;render();}else if(action==='jira-worklogs'){await openJiraWorklogs();}else if(action==='jira-apply'){applyJiraWorklogs();}else if(action==='jira-epics'){openEpicPicker(id);}else if(action==='epic-toggle'&&epicPicker){if(epicPicker.selected.has(id))epicPicker.selected.delete(id);else epicPicker.selected.add(id);updateEpicSelection();}else if(action==='epic-more'){await loadEpics(true);}else if(action==='epic-apply'&&epicPicker){const keys=[...epicPicker.selected].join(', ');epicPicker.input.value=keys;epicPicker.field.querySelector('[data-epic-label]').textContent=keys||'Aucun epic rattaché';dirty=true;closeModal();}else if(action==='new'){if(!abandon())return;if(shared){openNewPo();return;}else transact((c,s)=>{const x=D.newCockpit();s.cockpits.push(x);s.activeId=x.id;});onboarding=false;tab='setup';setupDraft=null;selectedMonth='';render();}else if(action==='add-project'){setupDraft=readDefinition();setupDraft.projects.push(D.newProject(setupDraft.year));render();dirty=true;document.querySelector('.project-form:last-child').scrollIntoView({block:'center',behavior:'smooth'});}else if(action==='remove-project'){const draft=readDefinition(),p=draft.projects.find(p=>p.id===id),c=current();const linked=c.invoices.some(i=>i.lines.some(l=>l.projectId===id))||Object.values(c.expenses).some(s=>s.rows.some(r=>r.projectId===id))||p.openingValidated>0;if(linked)throw Error('Ce projet a un historique. Ajustez sa date de fin au lieu de le supprimer.');if(!confirm('Retirer ce projet du brouillon ?'))return;draft.projects=draft.projects.filter(p=>p.id!==id);setupDraft=draft;render();dirty=true;}else if(action==='prefill'){if(!confirm('Remplacer les jours saisis par une suggestion issue du dispositif prévu ? Vérifiez ensuite les jours réellement travaillés.'))return;for(const row of document.querySelectorAll('[data-allocation]')){const p=current().projects.find(p=>p.id===row.dataset.allocation);for(const input of row.querySelectorAll('[data-role]'))if(!input.disabled)input.value=p?Math.round(D.daysInProjectMonth(p,selectedMonth,current().monthlyDays)*p.device[input.dataset.role]*2)/2:0;}dirty=true;updateAllocation();}else if(action==='create-invoice'){if(dirty)throw Error('Validez les modifications de la ventilation avant de créer la facture.');const result=await dispatch('createInvoice',[selectedMonth],c=>D.createInvoice(c,selectedMonth,who));render();openInvoice(result.id);notify('Facture créée. Vérifiez les jours et les TJM facturés.');}else if(action==='revise'){const reason=prompt('Motif de reprise de la ventilation (la facture sera conservée comme annulée) :');if(reason===null)return;await dispatch('revise',[b.dataset.month,reason],c=>D.reviseExpense(c,b.dataset.month,reason,who));render();notify('Ventilation rouverte ; la facture précédente est archivée.');}else if(action==='invoice'){if(!abandon())return;openInvoice(id);}else if(action==='project'){const p=current().projects.find(p=>p.id===id);modal.innerHTML=V.projectDetail(current(),p,who);modalInvoice=null;modalDirty=false;modal.showModal();}else if(action==='close'){closeModal();}else if(action==='csv'){csv();}else if(action==='backup'){download('cockpit-sauvegarde.json',JSON.stringify(store,null,2),'application/json');notify('Sauvegarde JSON exportée.');}else if(action==='download-invoice'){if(modalDirty&&who==='lassaad'){const patch=invoicePatch();await dispatch('editInvoice',[id,patch,false],c=>D.editInvoice(c,id,patch,who));modalDirty=false;}const i=D.visiblePoInvoices(current(),who).find(i=>i.id===id);if(!i)throw Error('Facture introuvable');download(i.number.replace(/[^a-zA-Z0-9_-]/g,'_')+'.html',V.invoiceDocument(current(),i),'text/html;charset=utf-8');}}catch(error){notify(error.message,true);}});
+}else if(action==='help-continue'){onboarding=false;tab=who==='lassaad'?'allocation':'budget';render();}else if(action==='nav'){if(!abandon())return;onboarding=false;tab=id;setupDraft=null;render();}else if(action==='jira-worklogs'){await openJiraWorklogs();}else if(action==='jira-apply'){applyJiraWorklogs();}else if(action==='jira-epics'){openEpicPicker(id);}else if(action==='epic-toggle'&&epicPicker){if(epicPicker.selected.has(id))epicPicker.selected.delete(id);else epicPicker.selected.add(id);updateEpicSelection();}else if(action==='epic-cancel'){closeEpicPicker(true);}else if(action==='epic-more'){await loadEpics(true);}else if(action==='epic-apply'&&epicPicker){const keys=[...epicPicker.selected].join(', ');epicPicker.input.value=keys;epicPicker.field.querySelector('[data-epic-label]').textContent=keys||'Sélectionner les epics';dirty=true;closeEpicPicker(true);}else if(action==='new'){if(!abandon())return;if(shared){openNewPo();return;}else transact((c,s)=>{const x=D.newCockpit();s.cockpits.push(x);s.activeId=x.id;});onboarding=false;tab='setup';setupDraft=null;selectedMonth='';render();}else if(action==='add-project'){setupDraft=readDefinition();setupDraft.projects.push(D.newProject(setupDraft.year));render();dirty=true;document.querySelector('.project-form:last-child').scrollIntoView({block:'center',behavior:'smooth'});}else if(action==='remove-project'){const draft=readDefinition(),p=draft.projects.find(p=>p.id===id),c=current();const linked=c.invoices.some(i=>i.lines.some(l=>l.projectId===id))||Object.values(c.expenses).some(s=>s.rows.some(r=>r.projectId===id))||p.openingValidated>0;if(linked)throw Error('Ce projet a un historique. Ajustez sa date de fin au lieu de le supprimer.');if(!confirm('Retirer ce projet du brouillon ?'))return;draft.projects=draft.projects.filter(p=>p.id!==id);setupDraft=draft;render();dirty=true;}else if(action==='prefill'){if(!confirm('Remplacer les jours saisis par une suggestion issue du dispositif prévu ? Vérifiez ensuite les jours réellement travaillés.'))return;for(const row of document.querySelectorAll('[data-allocation]')){const p=current().projects.find(p=>p.id===row.dataset.allocation);for(const input of row.querySelectorAll('[data-role]'))if(!input.disabled)input.value=p?Math.round(D.daysInProjectMonth(p,selectedMonth,current().monthlyDays)*p.device[input.dataset.role]*2)/2:0;}dirty=true;updateAllocation();}else if(action==='create-invoice'){if(dirty)throw Error('Validez les modifications de la ventilation avant de créer la facture.');const result=await dispatch('createInvoice',[selectedMonth],c=>D.createInvoice(c,selectedMonth,who));render();openInvoice(result.id);notify('Facture créée. Vérifiez les jours et les TJM facturés.');}else if(action==='revise'){const reason=prompt('Motif de reprise de la ventilation (la facture sera conservée comme annulée) :');if(reason===null)return;await dispatch('revise',[b.dataset.month,reason],c=>D.reviseExpense(c,b.dataset.month,reason,who));render();notify('Ventilation rouverte ; la facture précédente est archivée.');}else if(action==='invoice'){if(!abandon())return;openInvoice(id);}else if(action==='project'){const p=current().projects.find(p=>p.id===id);modal.innerHTML=V.projectDetail(current(),p,who);modalInvoice=null;modalDirty=false;modal.showModal();}else if(action==='close'){closeModal();}else if(action==='csv'){csv();}else if(action==='backup'){download('cockpit-sauvegarde.json',JSON.stringify(store,null,2),'application/json');notify('Sauvegarde JSON exportée.');}else if(action==='download-invoice'){if(modalDirty&&who==='lassaad'){const patch=invoicePatch();await dispatch('editInvoice',[id,patch,false],c=>D.editInvoice(c,id,patch,who));modalDirty=false;}const i=D.visiblePoInvoices(current(),who).find(i=>i.id===id);if(!i)throw Error('Facture introuvable');download(i.number.replace(/[^a-zA-Z0-9_-]/g,'_')+'.html',V.invoiceDocument(current(),i),'text/html;charset=utf-8');}}catch(error){notify(error.message,true);}});
 document.addEventListener('submit',async event=>{const form=event.target;if(form.id==='new-po-form'){
   event.preventDefault();
   if(saving)return;
@@ -251,9 +277,24 @@ document.addEventListener('submit',async event=>{const form=event.target;if(form
     button.textContent='Créer le PO';
   }
   return;
-}if(form.id==='epic-search'&&epicPicker){event.preventDefault();epicPicker.query=document.getElementById('epic-query').value;loadEpics();return;}if(!['setup-form','allocation-form','invoice-form','review-form'].includes(form.id))return;event.preventDefault();if(saving)return;try{const intent=event.submitter?.value||'save';if(form.id==='setup-form'){const next=readDefinition(),activate=intent==='activate';await dispatch('definition',[next,activate],(c,s)=>{if(s.cockpits.some(x=>x.id!==c.id&&x.poRef.trim().toUpperCase()===next.poRef.trim().toUpperCase()&&next.poRef))throw Error('Ce PO dispose déjà d’un cockpit. Sélectionnez son portefeuille.');D.saveDefinition(c,next,who,activate);});setupDraft=null;render();notify(activate?'Cockpit activé. Lassaad peut démarrer la ventilation.':'Paramétrage enregistré.');}else if(form.id==='allocation-form'){const rows=allocationRows();await dispatch('expense',[selectedMonth,rows,form.elements.zeroConfirmed.checked],c=>D.saveExpense(c,selectedMonth,rows,who,form.elements.zeroConfirmed.checked));render();notify('Ventilation validée. Vous pouvez créer la facture.');}else if(form.id==='invoice-form'){const id=form.dataset.id,patch=invoicePatch();await dispatch('editInvoice',[id,patch,intent==='send'],c=>{D.editInvoice(c,id,patch,who);if(intent==='send')D.sendInvoice(c,id,who);});render();openInvoice(id);notify(intent==='send'?'Facture transmise à l’owner du PO dans le cockpit.':'Facture enregistrée.');}else if(form.id==='review-form'){const id=form.dataset.id,note=value(form,'reviewNote');await dispatch('review',[id,note,intent],c=>intent==='return'?D.returnInvoice(c,id,note,who):D.validateInvoice(c,id,note,who));render();openInvoice(id);notify(intent==='return'?'Facture retournée à Lassaad.':'Facture validée et imputée une seule fois.');}}catch(error){notify(error.message,true);if(form.id==='setup-form'){document.getElementById('setup-feedback').innerHTML=`<div class="alert"><div><strong>Paramétrage à compléter</strong>${V.h(error.message)}</div></div>`;document.getElementById('setup-feedback').scrollIntoView({block:'start',behavior:'smooth'});}}});
-document.addEventListener('input',event=>{if(event.target.closest('#setup-form')){dirty=true;updateSplit();}else if(event.target.closest('#allocation-form')){dirty=true;updateAllocation();}else if(event.target.closest('#invoice-form')){modalDirty=true;updateInvoice();}else if(event.target.closest('#review-form'))modalDirty=true;});
-document.addEventListener('change',event=>{const kind=event.target.dataset.change;if(!kind)return;if(!abandon()){if(kind==='cockpit')event.target.value=store.activeId;else event.target.value=selectedMonth;return;}try{if(kind==='cockpit'){const id=event.target.value;if(shared)selectSharedCockpit(id);else transact((c,s)=>s.activeId=id);setupDraft=null;selectedMonth='';}else if(kind==='month')selectedMonth=event.target.value;render();}catch(error){notify(error.message,true);}});
+}if(!['setup-form','allocation-form','invoice-form','review-form'].includes(form.id))return;event.preventDefault();if(saving)return;try{const intent=event.submitter?.value||'save';if(form.id==='setup-form'){const next=readDefinition(),activate=intent==='activate';await dispatch('definition',[next,activate],(c,s)=>{if(s.cockpits.some(x=>x.id!==c.id&&x.poRef.trim().toUpperCase()===next.poRef.trim().toUpperCase()&&next.poRef))throw Error('Ce PO dispose déjà d’un cockpit. Sélectionnez son portefeuille.');D.saveDefinition(c,next,who,activate);});setupDraft=null;render();notify(activate?'Cockpit activé. Lassaad peut démarrer la ventilation.':'Paramétrage enregistré.');}else if(form.id==='allocation-form'){const rows=allocationRows();await dispatch('expense',[selectedMonth,rows,form.elements.zeroConfirmed.checked],c=>D.saveExpense(c,selectedMonth,rows,who,form.elements.zeroConfirmed.checked));render();notify('Ventilation validée. Vous pouvez créer la facture.');}else if(form.id==='invoice-form'){const id=form.dataset.id,patch=invoicePatch();await dispatch('editInvoice',[id,patch,intent==='send'],c=>{D.editInvoice(c,id,patch,who);if(intent==='send')D.sendInvoice(c,id,who);});render();openInvoice(id);notify(intent==='send'?'Facture transmise à l’owner du PO dans le cockpit.':'Facture enregistrée.');}else if(form.id==='review-form'){const id=form.dataset.id,note=value(form,'reviewNote');await dispatch('review',[id,note,intent],c=>intent==='return'?D.returnInvoice(c,id,note,who):D.validateInvoice(c,id,note,who));render();openInvoice(id);notify(intent==='return'?'Facture retournée à Lassaad.':'Facture validée et imputée une seule fois.');}}catch(error){notify(error.message,true);if(form.id==='setup-form'){document.getElementById('setup-feedback').innerHTML=`<div class="alert"><div><strong>Paramétrage à compléter</strong>${V.h(error.message)}</div></div>`;document.getElementById('setup-feedback').scrollIntoView({block:'start',behavior:'smooth'});}}});
+document.addEventListener('input',event=>{
+  if(event.target.id==='epic-query'&&epicPicker){
+    epicPicker.query=event.target.value;
+    clearTimeout(epicPicker.debounce);
+    epicPicker.controller?.abort();
+    epicPicker.debounce=setTimeout(()=>loadEpics(),250);
+    return;
+  }
+  if(event.target.hasAttribute('data-epic-check')) return;
+if(event.target.closest('#setup-form')){dirty=true;updateSplit();}else if(event.target.closest('#allocation-form')){dirty=true;updateAllocation();}else if(event.target.closest('#invoice-form')){modalDirty=true;updateInvoice();}else if(event.target.closest('#review-form'))modalDirty=true;});
+document.addEventListener('change',event=>{
+  if(event.target.hasAttribute('data-epic-check')&&epicPicker){
+    if(event.target.checked) epicPicker.selected.add(event.target.value); else epicPicker.selected.delete(event.target.value);
+    updateEpicSelection();
+    return;
+  }
+  const kind=event.target.dataset.change;if(!kind)return;if(!abandon()){if(kind==='cockpit')event.target.value=store.activeId;else event.target.value=selectedMonth;return;}try{if(kind==='cockpit'){const id=event.target.value;if(shared)selectSharedCockpit(id);else transact((c,s)=>s.activeId=id);setupDraft=null;selectedMonth='';}else if(kind==='month')selectedMonth=event.target.value;render();}catch(error){notify(error.message,true);}});
 modal.addEventListener('cancel',event=>{event.preventDefault();closeModal();});
 window.addEventListener('beforeunload',event=>{if(dirty||modalDirty){event.preventDefault();event.returnValue='';}});
 if (shared) startShared();

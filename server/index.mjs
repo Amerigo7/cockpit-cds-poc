@@ -17,6 +17,7 @@ await db.query('CREATE TABLE IF NOT EXISTS cockpit (id integer PRIMARY KEY, revi
 await db.query('INSERT INTO cockpit VALUES (1, 0, $1) ON CONFLICT DO NOTHING', [initialStore()]);
 
 await db.query('CREATE TABLE IF NOT EXISTS cds_session (token_hash text PRIMARY KEY, role text NOT NULL, expires_at timestamptz NOT NULL)');
+await db.query('ALTER TABLE cds_session ADD COLUMN IF NOT EXISTS cockpit_opened boolean NOT NULL DEFAULT true');
 const auth = sessions(db, passwords);
 
 // One-time cleanup of the initial hosted acceptance test. The revision guard
@@ -36,7 +37,7 @@ await db.query(`
 
 await resetReceiptWorkspace(db);
 
-const assets = { '/': ['index.html', 'text/html'], '/style.css': ['style.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'], '/views.js': ['views.js', 'text/javascript'], '/domain.js': ['domain.js', 'text/javascript'] };
+const assets = { '/cockpit': ['index.html', 'text/html'], '/style.css': ['style.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'], '/views.js': ['views.js', 'text/javascript'], '/domain.js': ['domain.js', 'text/javascript'] };
 function json(res, status, payload) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
@@ -90,11 +91,15 @@ createServer(async (req, res) => {
         const ok = await auth.login(req, res, form.get('role') || '', form.get('password') || '');
         if (!ok) return loginPage(res, 'invalid');
       }
+      res.writeHead(303, { Location: path === '/login' ? '/cockpit' : '/' });
+      return res.end();
+    }
+    if (path === '/' && req.method === 'GET') return loginPage(res);
+    if (path === '/cockpit' && req.method === 'GET' && !await auth.openCockpit(req)) {
       res.writeHead(303, { Location: '/' });
       return res.end();
     }
     const role = await auth.role(req);
-    if (!role && path === '/' && req.method === 'GET') return loginPage(res);
     if (!role && path !== '/style.css') return json(res, 401, { error: 'Connexion au cockpit requise.' });
     if (path === '/api/jira/worklogs' && req.method === 'GET') {
       if (role !== 'lassaad') return json(res, 403, { error: 'Lecture des temps réservée à Lassaad.' });
@@ -157,7 +162,7 @@ createServer(async (req, res) => {
     if (req.method === 'GET' && Object.hasOwn(assets, path)) {
       const [file, type] = assets[path];
       let body = await readFile(new URL('../dist/' + file, import.meta.url), 'utf8');
-      if (path === '/') body = body.replace('<html lang="fr">', '<html lang="fr" data-shared>');
+      if (path === '/cockpit') body = body.replace('<html lang="fr">', '<html lang="fr" data-shared>');
       res.writeHead(200, { 'Content-Type': type + '; charset=utf-8' });
       return res.end(body);
     }

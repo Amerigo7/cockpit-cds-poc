@@ -23,3 +23,80 @@ th{font-size:14px}.metric .label,.metric .detail,.panel-head p,.subtle,.tag{font
 .shared-login-card form { margin-top: 1.25rem; }
 .shared-login-card button, #new-po-form button { justify-self: start; }
 #new-po-feedback:empty { display: none; }
+
+/* Accor CD&T palette: midnight, aqua and warm gold. */
+:root {
+  --navy: #020032;
+  --teal: #006b74;
+  --line: #e0e5ed;
+  --muted: #56627a;
+  --aqua: #00bbc6;
+  --gold: #d6a978;
+  background: #f4f6f9;
+}
+.sidebar { background: var(--navy); }
+.sidebar .logo { background: var(--aqua); color: var(--navy); }
+.topbar { border-bottom-color: var(--line); }
+.panel, .metric, .project-form { border-color: var(--line); }
+.panel, .metric { box-shadow: 0 4px 18px #02003206; }
+.btn.teal { background: var(--teal); border-color: var(--teal); color: white; }
+.btn.teal:hover { background: #005760; }
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+[hidden] { display: none !important; }
+
+.shared-login {
+  min-height: 100vh;
+  background: var(--navy);
+  color: white;
+  padding: clamp(1rem, 4vw, 4rem);
+}
+.auth-layout {
+  display: grid;
+  width: min(100%, 1040px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  gap: clamp(2rem, 7vw, 6rem);
+  align-items: center;
+}
+.auth-brand { color: #87e3e8; font-size: .82rem; font-weight: 750; letter-spacing: .12em; }
+.auth-intro h1 { font-size: clamp(2.4rem, 6vw, 5.4rem); line-height: 1.05; margin: .6rem 0 1.1rem; }
+.auth-intro h1::after { content: ''; display: block; width: 3rem; height: 3px; background: var(--gold); margin-top: 1.25rem; }
+.auth-intro > p:last-child { color: #e1ebeb; max-width: 34ch; }
+.shared-login-card { width: 100%; padding: clamp(1.25rem, 4vw, 2.4rem); color: var(--navy); box-shadow: 0 18px 60px #0004; }
+.shared-login-card h2 { margin-bottom: .3rem; }
+.shared-login-card > p { color: var(--muted); }
+.auth-profiles { display: grid; gap: .45rem; margin: 0; padding: 0; border: none; }
+.auth-profiles legend { margin-bottom: .45rem; font-weight: 650; }
+.auth-profiles label { display: flex; align-items: center; gap: .75rem; padding: .65rem .8rem; border: 1px solid var(--line); border-radius: .55rem; cursor: pointer; }
+.auth-profiles label:has(:checked) { background: #edf8f8; border-color: var(--teal); }
+.auth-profiles strong, .auth-profiles small { display: block; }
+.auth-profiles small { color: var(--muted); margin-top: .12rem; }
+.auth-profiles input { accent-color: var(--teal); }
+@media (max-width: 720px) {
+  .auth-layout { grid-template-columns: 1fr; gap: 1.5rem; max-width: 460px; }
+  .auth-intro h1 { margin-bottom: .6rem; }
+}
+
+.epic-links { position: relative; max-width: 46rem; display: grid; gap: .4rem; margin-block: 1.2rem; }
+.epic-caption { font-size: .9rem; font-weight: 700; color: var(--navy); }
+.epic-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: .8rem; width: 100%;
+  text-align: left; border: 1px solid #bfcadd; border-radius: .65rem; background: white;
+  color: var(--navy); padding: .75rem .9rem; min-height: 2.75rem; cursor: pointer; font: inherit;
+}
+.epic-trigger[aria-expanded="true"] { border-color: var(--teal); }
+.epic-chevron { width: .55rem; height: .55rem; border-right: 2px solid; border-bottom: 2px solid; transform: rotate(45deg); flex: none; margin-right: .2rem; }
+.epic-trigger[aria-expanded="true"] .epic-chevron { transform: rotate(225deg); }
+.epic-dropdown { background: white; border: 1px solid #cfd9e5; border-radius: .75rem; padding: .8rem; box-shadow: 0 10px 28px #02003213; }
+.epic-searchbox { display: grid; gap: .3rem; font-size: .85rem; font-weight: 650; }
+.epic-searchbox input { font: inherit; padding: .65rem .75rem; border: 1px solid #c6d0df; border-radius: .5rem; width: 100%; }
+.epic-selection { display: flex; flex-wrap: wrap; gap: .35rem; margin-block: .6rem; }
+.epic-chip { border: 1px solid #c9e4e7; border-radius: 2rem; background: #edf8f8; color: #005860; padding: .3rem .6rem; font: inherit; font-size: .8rem; cursor: pointer; }
+.epic-message { color: var(--muted); font-size: .85rem; }
+.epic-message:empty { display: none; }
+#epic-results { max-height: 17rem; margin: 0; overflow: auto; }
+.epic-option { display: flex; align-items: center; gap: .65rem; padding: .55rem .45rem; border-bottom: 1px solid var(--line); cursor: pointer; }
+.epic-option:hover, .epic-option:has(:checked) { background: #edf8f8; }
+.epic-option input { accent-color: var(--teal); width: 1rem; height: 1rem; flex: 0 0 auto; }
+.epic-option strong { display: block; font-size: .9rem; overflow-wrap: anywhere; }
+.epic-option small { color: var(--muted); }
+.epic-footer { display: flex; flex-wrap: wrap; justify-content: end; gap: .45rem; margin-top: .7rem; }

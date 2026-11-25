@@ -22,11 +22,20 @@ export function sessions(db, passwords) {
       const { rows } = await db.query('SELECT role FROM cds_session WHERE token_hash = $1 AND expires_at > now()', [hash]);
       return rows[0]?.role || null;
     },
+    async openCockpit(req) {
+      const hash = readCookie(req);
+      if (!hash) return false;
+      const { rowCount } = await db.query(
+        'UPDATE cds_session SET cockpit_opened = true WHERE token_hash = $1 AND expires_at > now() AND NOT cockpit_opened',
+        [hash]
+      );
+      return rowCount === 1;
+    },
     async login(req, res, role, password) {
       if (!checkPassword(role, password)) return false;
       const token = randomBytes(32).toString('base64url');
       await db.query('DELETE FROM cds_session WHERE expires_at <= now() OR token_hash = $1', [readCookie(req)]);
-      await db.query('INSERT INTO cds_session (token_hash, role, expires_at) VALUES ($1, $2, now() + make_interval(secs => $3))',
+      await db.query('INSERT INTO cds_session (token_hash, role, expires_at, cockpit_opened) VALUES ($1, $2, now() + make_interval(secs => $3), false)',
         [tokenHash(token), role, lifetime]);
       res.setHeader('Set-Cookie', cookieName + '=' + token + attributes + '; Max-Age=' + lifetime);
       return true;
@@ -43,11 +52,19 @@ export function loginPage(res, error = '') {
   res.writeHead(error ? 401 : 200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Connexion · Cockpit CDS</title><link rel="stylesheet" href="/style.css"></head>
-  <body class="shared-login"><main class="shared-login-card"><p class="brand">Cockpit CDS</p><h1>Connexion au cockpit partagé</h1>
+  <body class="shared-login"><main class="auth-layout">
+  <section class="auth-intro"><p class="auth-brand">COMMERCIAL, DIGITAL &amp; TECH</p>
+    <h1>Cockpit CDS</h1><p>Suivi des budgets, des imputations et des factures par PO.</p>
+  </section>
+  <section class="shared-login-card"><h2>Connexion</h2><p>Choisissez votre profil pour ouvrir le cockpit.</p>
   <form action="/login" method="post">
-    <label class="field">Identifiant<select name="role" required><option value="">Choisir votre accès</option><option value="laurent">Laurent</option><option value="jennifer">Jennifer</option><option value="lassaad">Lassaad</option></select></label>
+    <fieldset class="auth-profiles"><legend>Profil</legend>
+      <label><input type="radio" name="role" value="laurent" required><span><strong>Laurent</strong><small>Accor · Owner du PO</small></span></label>
+      <label><input type="radio" name="role" value="jennifer"><span><strong>Jennifer</strong><small>Accor · Pilotage</small></span></label>
+      <label><input type="radio" name="role" value="lassaad"><span><strong>Lassaad</strong><small>Fournisseur · Responsable CDS</small></span></label>
+    </fieldset>
     <label class="field">Mot de passe<input type="password" name="password" autocomplete="current-password" required></label>
     ${error ? '<p role="alert" class="text-red">Identifiant ou mot de passe incorrect.</p>' : ''}
     <button type="submit" class="btn teal">Se connecter</button>
-  </form></main></body></html>`);
+  </form></section></main></body></html>`);
 }
