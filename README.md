@@ -121,7 +121,12 @@ Dans **Initialisation**, ouvrez **Choisir les epics Jira OP** sur un projet.
 Cherchez par clé ou titre, choisissez les epics puis enregistrez le
 paramétrage. Pour une epic créée plus tard, relancez la recherche depuis
 le même projet. Les clés rattachées définissent le périmètre Jira du projet.
-La ventilation des jours reste manuelle.
+Lassaad peut ouvrir **Préremplir depuis Jira** dans la ventilation du mois.
+L’aperçu consulte les temps visibles sur les tickets et sous-tâches des
+epics rattachées. Il affiche le projet, l’intervenant, les tickets et les heures.
+Lassaad choisit les profils, ajuste la durée d’un jour si nécessaire
+(8 h par défaut), puis applique les propositions arrondies à la demi-journée.
+La grille reste modifiable et doit être enregistrée avant facturation.
 
 L’instance partagée interroge Jira Cloud depuis le serveur. Renseignez
 `JIRA_EMAIL` et `JIRA_API_TOKEN` dans Render avec un compte autorisé à

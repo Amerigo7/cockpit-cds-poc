@@ -2,9 +2,9 @@ import { createServer } from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
-import { initialStore } from '../dist/domain.js';
+import { initialStore, getInvoiceForMonth } from '../dist/domain.js';
 import { applyAction } from './actions.mjs';
-import { searchEpics, verifyNewEpicLinks } from './jira.mjs';
+import { searchEpics, verifyNewEpicLinks, previewWorklogs } from './jira.mjs';
 
 const roles = ['laurent', 'jennifer', 'lassaad'];
 const passwords = Object.fromEntries(roles.map(role => [role, process.env[role.toUpperCase() + '_PASSWORD']]));
@@ -79,6 +79,25 @@ createServer(async (req, res) => {
     return json(res, 401, { error: 'Identifiants du testeur requis.' });
   }
   try {
+    if (path === '/api/jira/worklogs' && req.method === 'GET') {
+      if (role !== 'lassaad') return json(res, 403, { error: 'Lecture des temps réservée à Lassaad.' });
+      const id = requestUrl.searchParams.get('cockpitId');
+      const month = requestUrl.searchParams.get('month') || '';
+      const { rows: [row] } = await db.query('SELECT revision, state FROM cockpit WHERE id = 1');
+      const cockpit = row.state.cockpits.find(c => c.id === id);
+      if (!cockpit || cockpit.status !== 'active' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) ||
+          month < cockpit.start.slice(0, 7) || month > cockpit.end.slice(0, 7) || month <= cockpit.openingMonth) {
+        return json(res, 400, { error: 'Sélectionnez un mois ouvert dans un PO actif.' });
+      }
+      if (getInvoiceForMonth(cockpit, month)) return json(res, 409, { error: 'Ce mois est verrouillé par une facture.' });
+      try {
+        return json(res, 200, { ...await previewWorklogs(cockpit, month), revision: row.revision });
+      } catch (error) {
+        const message = error.name === 'TimeoutError' || error instanceof TypeError
+          ? 'Les temps Jira OP sont momentanément indisponibles.' : error.message;
+        return json(res, 503, { error: message });
+      }
+    }
     if (path === '/api/jira/epics' && req.method === 'GET') {
       if (role === 'lassaad') return json(res, 403, { error: 'Recherche Jira réservée à Accor.' });
       try {
