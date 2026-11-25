@@ -14,6 +14,21 @@ const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 await db.query('CREATE TABLE IF NOT EXISTS cockpit (id integer PRIMARY KEY, revision integer NOT NULL, state jsonb NOT NULL)');
 await db.query('INSERT INTO cockpit VALUES (1, 0, $1) ON CONFLICT DO NOTHING', [initialStore()]);
 
+// One-time cleanup of the initial hosted acceptance test. The revision guard
+// leaves subsequent edits intact, including when this release restarts.
+await db.query(`
+  UPDATE cockpit
+  SET state = jsonb_set(state, '{cockpits,0}',
+        (state #> '{cockpits,0}') ||
+        '{"status":"draft","expenses":{},"invoices":[],"audit":[]}'::jsonb),
+      revision = revision + 1
+  WHERE id = 1 AND revision = 4
+    AND state #>> '{cockpits,0,poRef}' = '124177'
+    AND state #>> '{cockpits,0,status}' = 'active'
+    AND state #>> '{cockpits,0,invoices,0,id}' = 'invoice-e7677eea-0ae0-4672-b68f-3d3d0c18f262'
+    AND state #>> '{cockpits,0,invoices,0,reviewNote}' = 'Recette du POC partagé'
+`);
+
 const assets = { '/': ['index.html', 'text/html'], '/style.css': ['style.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'], '/views.js': ['views.js', 'text/javascript'], '/domain.js': ['domain.js', 'text/javascript'] };
 const digest = value => createHash('sha256').update(value).digest();
 function authenticatedRole(req) {
