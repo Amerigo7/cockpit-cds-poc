@@ -234,7 +234,7 @@ async function loadMemberSubmissions() {
     if (!response.ok) throw Error(data.error);
     panel.innerHTML = data.sheets.length ? data.sheets.map(row => {
       const tickets = row.snapshot.tickets;
-      return `<details class="panel"><summary class="panel-body">${V.h(data.name)} · ${V.h(row.month)} · ${tickets.length} ticket(s) · Validée</summary><div class="panel-body table-wrap"><table><thead><tr><th>Ticket</th><th>Heures calendaires</th><th>Heures ouvrées</th><th>Temps Jira</th></tr></thead><tbody>${tickets.map(t=>`<tr><td>${V.h(t.key)} · ${V.h(t.summary)}</td><td>${V.dec(t.hours_calendar)} h</td><td>${V.dec(t.hours_business)} h</td><td>${V.dec(t.worklog_hours)} h</td></tr>`).join('')}</tbody></table></div></details>`;
+      return `<details class="panel"><summary class="panel-body">${V.h(data.name)} · ${V.h(row.month)} · ${tickets.length} ticket(s) · Validée</summary><div class="panel-body table-wrap"><table><thead><tr><th>Ticket</th><th>Heures ouvrées</th><th>Jours (9 h / j)</th><th>Temps Jira</th></tr></thead><tbody>${tickets.map(t=>`<tr><td>${V.h(t.key)} · ${V.h(t.summary)}</td><td>${V.dec(t.hours_business)} h</td><td>${V.dec(t.business_days)} j</td><td>${V.dec(t.worklog_hours)} h</td></tr>`).join('')}</tbody></table></div></details>`;
     }).join('') : 'Aucune fiche membre validée.';
   } catch (error) { panel.textContent = error.message; }
 }

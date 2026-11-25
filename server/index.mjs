@@ -4,7 +4,7 @@ import pg from 'pg';
 import { initialStore, getInvoiceForMonth, isPoOwner, visiblePoInvoices, moneyRound } from '../dist/domain.js';
 import { applyAction } from './actions.mjs';
 import { sessions, loginPage } from './session.mjs';
-import { memberConfig, getMemberSheet, refreshMemberSheet, validateMemberSheet } from './member.mjs';
+import { memberConfig, getMemberSheet, refreshMemberSheet, validateMemberSheet, businessSheet } from './member.mjs';
 import { resetReceiptWorkspace } from './reset-receipt.mjs';
 import { searchEpics, verifyNewEpicLinks, previewWorklogs } from './jira.mjs';
 
@@ -143,7 +143,7 @@ createServer(async (req, res) => {
         SELECT month, snapshot, validated_at FROM cds_member_sheet
         WHERE email = $1 AND validated_at IS NOT NULL ORDER BY month DESC
       `, [member?.email || '']);
-      return json(res, 200, { name: member?.name, sheets: rows });
+      return json(res, 200, { name: member?.name, sheets: rows.map(row => ({ ...row, snapshot: businessSheet(row.snapshot) })) });
     }
     if (path === '/api/jira/worklogs' && req.method === 'GET') {
       if (role !== 'lassaad') return json(res, 403, { error: 'Lecture des temps réservée à Lassaad.' });

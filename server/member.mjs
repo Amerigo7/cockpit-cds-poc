@@ -15,13 +15,29 @@ export function memberConfig(env = process.env) {
   return email && password?.length >= 20 && account && name ? { email, password, account, name } : null;
 }
 
+export function businessSheet(snapshot) {
+  const { totals, tickets, periods, ...metadata } = snapshot;
+  return {
+    ...metadata,
+    totals: totals ? {
+      assignee_name: totals.assignee_name,
+      nb_tickets: totals.nb_tickets,
+      total_hours_business: totals.total_hours_business,
+      total_worklog_hours: totals.total_worklog_hours,
+      total_business_days: totals.total_hours_business / 9
+    } : null,
+    tickets: tickets.map(({ hours_calendar, ...ticket }) => ({ ...ticket, business_days: ticket.hours_business / 9 })),
+    periods: periods.map(({ hours_calendar, ...period }) => ({ ...period, business_days: period.hours_business / 9 }))
+  };
+}
+
 export async function getMemberSheet(db, member, month) {
   if (!monthFormat.test(month)) throw Error('Sélectionnez un mois valide.');
   const { rows: [row] } = await db.query(
     'SELECT snapshot, version, validated_at FROM cds_member_sheet WHERE email = $1 AND month = $2',
     [member.email, month]
   );
-  return row ? { ...row.snapshot, version: row.version, validatedAt: row.validated_at } : null;
+  return row ? { ...businessSheet(row.snapshot), version: row.version, validatedAt: row.validated_at } : null;
 }
 
 export async function refreshMemberSheet(db, member, month) {
@@ -44,12 +60,12 @@ export async function refreshMemberSheet(db, member, month) {
       throw Error(status ? 'Lecture Jira impossible (HTTP ' + status + ').' : 'La lecture Jira n’a pas abouti. Réessayez.');
     }
     const report = JSON.parse(stdout);
-    const snapshot = {
+    const snapshot = businessSheet({
       tickets: report.tickets,
       periods: report.periods.map(({assignee_accountId, ...period}) => period),
       totals: report.people[0] || null,
       loadedAt: new Date().toISOString()
-    };
+    });
     await db.query(`
       INSERT INTO cds_member_sheet(email, month, snapshot) VALUES ($1,$2,$3)
       ON CONFLICT (email, month) DO UPDATE SET snapshot = EXCLUDED.snapshot, version = cds_member_sheet.version + 1
