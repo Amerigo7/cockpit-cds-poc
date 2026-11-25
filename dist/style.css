@@ -105,3 +105,8 @@ th{font-size:14px}.metric .label,.metric .detail,.panel-head p,.subtle,.tag{font
 .shared-login-card form:has([value="member"]:checked) .auth-member-email { display: grid; }
 #member-status, #member-summary { margin-block: .8rem; }
 #member-validate { margin-top: 1rem; }
+
+.member-total { background: #eef7f7; border-radius: .65rem; margin-block: 1rem; }
+.member-total h2 { margin-block: .35rem; }
+#member-epics h2 { margin-top: 1.5rem; }
+#member-results { margin-top: 1rem; }

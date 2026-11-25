@@ -4,7 +4,7 @@ import pg from 'pg';
 import { initialStore, getInvoiceForMonth, isPoOwner, visiblePoInvoices, moneyRound } from '../dist/domain.js';
 import { applyAction } from './actions.mjs';
 import { sessions, loginPage } from './session.mjs';
-import { memberConfig, getMemberSheet, refreshMemberSheet, validateMemberSheet, businessSheet, readMemberActivity } from './member.mjs';
+import { memberConfig, getMemberSheet, refreshMemberSheet, validateMemberSheet, businessSheet } from './member.mjs';
 import { resetReceiptWorkspace } from './reset-receipt.mjs';
 import { searchEpics, verifyNewEpicLinks, previewWorklogs } from './jira.mjs';
 
@@ -128,7 +128,6 @@ createServer(async (req, res) => {
         else if (req.method === 'POST' && req.headers['sec-fetch-site'] === 'same-origin' &&
             req.headers['content-type'] === 'application/json') {
           const { action, version } = JSON.parse(await readBody(req, 4096));
-          if (action === 'activity') return json(res, 200, { activity: await readMemberActivity(member, month) });
           if (action === 'refresh') sheet = await refreshMemberSheet(db, member, month);
           else if (action === 'validate') sheet = await validateMemberSheet(db, member, month, version);
           else return json(res, 400, { error: 'Action inconnue.' });

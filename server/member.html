@@ -5,21 +5,16 @@
 <header class="topbar"><strong>Cockpit CDS · Membre</strong><form action="/logout" method="post"><button class="btn" type="submit">Se déconnecter</button></form></header>
 <main class="content">
   <div class="heading"><div><h1>Ma fiche d’imputation</h1><p id="member-name"></p></div></div>
-  <p>Fiche mensuelle : tickets Jira OP passés en Done pendant le mois. Seules les périodes où vous étiez assigné, comprises dans le mois, sont prises en compte.</p>
-  <p>Calcul du lundi au vendredi, de 9 h à 18 h, heure de Paris. 9 h = 1 jour et 4,5 h = 0,5 jour. Le total mensuel compte une seule fois les plages communes à plusieurs tickets. Le détail conserve la durée de chaque ticket. Les heures saisies dans Jira sont affichées séparément.</p>
+  <p>Jira OP · Tickets passés en Done dans le mois et tickets en cours à la date d’arrêté.</p>
+  <p>Seules les périodes où vous étiez assigné sont comptées, du lundi au vendredi de 9 h à 18 h, heure de Paris. Le total ne compte les chevauchements qu’une fois.</p>
   <section class="panel"><div class="panel-body">
     <div class="inline"><label for="member-month">Mois d’imputation</label><input id="member-month" type="month">
       <button class="btn primary" id="member-load" type="button">Actualiser depuis Jira</button></div>
     <p id="member-status" role="status"></p>
     <div id="member-summary"></div>
+    <div id="member-epics" class="table-wrap"></div>
     <div id="member-results" class="table-wrap"></div>
     <button id="member-validate" type="button" class="btn teal" hidden>Valider ma fiche</button>
-  </div></section>
-  <section id="activity-panel" class="panel" hidden><div class="panel-body">
-    <h2>Activité du mois en cours</h2>
-    <p>Tickets passés en Done ce mois-ci et tickets actuellement en cours. Le calcul s’arrête à la dernière transition Done pour les tickets terminés et à l’heure de consultation pour les tickets en cours. Les plages de réassignation sont exclues.</p>
-    <button class="btn" id="member-activity" type="button">Calculer l’activité à aujourd’hui</button>
-    <p id="activity-status" role="status"></p><div id="activity-results" class="table-wrap"></div>
   </div></section>
 </main>
 <script type="module" src="/member.js"></script></body></html>

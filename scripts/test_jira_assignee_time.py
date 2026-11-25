@@ -113,3 +113,35 @@ def test_done_in_activity_stops_at_done():
     done, intervals = build_periods(ticket, changes, "2026-11", clip_month=True,
                                     as_of=parse_date("2026-11-04T14:00:00+01:00"))
     assert intervals[-1][3] == done
+
+
+def test_epic_breakdown_allocates_overlaps_once():
+    from jira_assignee_time import epic_breakdown
+
+    start = parse_date("2026-11-02T09:00:00+01:00")
+    middle = parse_date("2026-11-02T12:00:00+01:00")
+    end = parse_date("2026-11-02T18:00:00+01:00")
+    result = epic_breakdown([("OP-1", start, end), ("OP-1", middle, end), (None, middle, end)])
+    assert result == {"OP-1": 6, None: 3}
+    assert sum(result.values()) == 9
+
+
+def test_epic_lookup_walks_subtask_to_parent_epic():
+    from jira_assignee_time import load_epics
+
+    class JiraFixture:
+        def request(self, path, params):
+            if '"OP-2"' in params["jql"]:
+                fields = {"parent": {"key": "OP-1"}, "issuetype": {"name": "Story"}}
+                return {"issues": [{"key": "OP-2", "fields": fields}]}
+            fields = {"summary": "Epic exemple", "issuetype": {"hierarchyLevel": 1}}
+            return {"issues": [{"key": "OP-1", "fields": fields}]}
+
+    issues = [{"key": "OP-3", "fields": {"parent": {"key": "OP-2"}}}, {"key":"OP-4","fields":{}}]
+    assert load_epics(JiraFixture(), issues) == {"OP-3": ("OP-1", "Epic exemple")}
+
+
+def test_month_bounds_support_leap_and_month_end():
+    from jira_assignee_time import month_bounds
+    assert month_bounds("2028-02")[1].isoformat() == "2028-03-01T00:00:00+01:00"
+    assert month_bounds("2026-11")[1].isoformat() == "2026-12-01T00:00:00+01:00"

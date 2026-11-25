@@ -65,23 +65,99 @@ def unique_business_hours(intervals):
     return sum(business_hours_between(start, end) for start, end in merged)
 
 
-def build_periods(issue, history, month, done_statuses=("Done",), clip_month=False, as_of=None):
+def epic_breakdown(intervals):
+    """Divide each covered segment evenly among its distinct epics."""
+    events = defaultdict(list)
+    for epic, start, end in intervals:
+        events[start.timestamp()].append((epic, 1))
+        events[end.timestamp()].append((epic, -1))
+    active, totals = defaultdict(int), defaultdict(float)
+    previous = None
+    for when in sorted(events):
+        if active and previous is not None:
+            duration = business_hours_between(datetime.fromtimestamp(previous, PARIS), datetime.fromtimestamp(when, PARIS))
+            if duration:
+                for epic in active:
+                    totals[epic] += duration / len(active)
+        for epic, change in events[when]:
+            active[epic] += change
+            if not active[epic]:
+                del active[epic]
+        previous = when
+    return totals
+
+
+def load_epics(client, issues):
+    # Jira parent points to the issue for a sub-task and to the epic for a story.
+    by_key = {issue["key"]: issue["fields"] for issue in issues}
+    parents = {(fields.get("parent") or {}).get("key") for fields in by_key.values()}
+    visited = set(by_key)
+    while parents - visited - {None}:
+        pending = sorted(parents - visited - {None})
+        parents = set()
+        for start in range(0, len(pending), 40):
+            batch = pending[start:start + 40]
+            visited.update(batch)
+            params = {"jql": "key IN (" + ",".join(map(quoted, batch)) + ")",
+                      "fields": "summary,issuetype,parent", "maxResults": 100}
+            seen = set()
+            while True:
+                page = client.request("search/jql", params)
+                for issue in page["issues"]:
+                    fields = issue["fields"]
+                    by_key[issue["key"]] = fields
+                    parents.add((fields.get("parent") or {}).get("key"))
+                cursor = page.get("nextPageToken")
+                if page.get("isLast") or not cursor:
+                    break
+                if cursor in seen:
+                    raise ValueError("Pagination Jira des epics incomplète.")
+                seen.add(cursor)
+                params["nextPageToken"] = cursor
+    result = {}
+    for issue in issues:
+        key, seen = issue["key"], set()
+        while key in by_key and key not in seen:
+            seen.add(key)
+            fields = by_key[key]
+            typ = fields.get("issuetype") or {}
+            if typ.get("hierarchyLevel") == 1 or typ.get("name", "").casefold() == "epic":
+                result[issue["key"]] = (key, fields.get("summary") or key)
+                break
+            key = (fields.get("parent") or {}).get("key")
+    return result
+
+
+def historical_progress(current_status, changes, boundary, progress_ids):
+    status_id = changes[0][1].get("from") if changes else current_status.get("id")
+    for when, change in changes:
+        if when >= boundary:
+            break
+        status_id = change.get("to")
+    return str(status_id) in progress_ids
+
+
+def build_periods(issue, history, month, done_statuses=("Done",), clip_month=False, as_of=None, progress_ids=None):
     """Return the last in-month Done and the assignment intervals that precede it."""
     first, following = month_bounds(month)
     statuses = {value.casefold() for value in done_statuses}
     entries = sorted(history, key=lambda entry: parse_date(entry["created"]))
-    transitions, assignments = [], []
+    transitions, assignments, status_changes = [], [], []
     for entry in entries:
         when = parse_date(entry["created"])
         for item in entry.get("items", []):
             field = (item.get("fieldId") or item.get("field") or "").lower()
-            if field == "status" and first <= when < following and (item.get("toString") or "").casefold() in statuses:
-                transitions.append(when)
+            if field == "status":
+                status_changes.append((when, item))
+                if first <= when < following and (item.get("toString") or "").casefold() in statuses:
+                    transitions.append(when)
             if field == "assignee":
                 assignments.append((when, item))
     done = max((when for when in transitions if as_of is None or when <= as_of), default=None)
     current_status = issue["fields"].get("status") or {}
     ongoing = as_of is not None and (current_status.get("statusCategory") or {}).get("key") == "indeterminate"
+    if as_of is not None and progress_ids is not None:
+        ongoing = historical_progress(current_status, status_changes, as_of, progress_ids)
     end = min(as_of, following) if ongoing else done
     if end is None or end <= first:
         return None, []
@@ -150,7 +226,7 @@ def quoted(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def search_issues(client, project, types, statuses, month, ongoing_assignee=None):
+def search_issues(client, project, types, statuses, month, ongoing_assignee=None, progress_ids=None):
     start, end = month_bounds(month)
     project = project.strip().upper()
     if not re.fullmatch(r"[A-Z][A-Z0-9_]*", project):
@@ -158,10 +234,14 @@ def search_issues(client, project, types, statuses, month, ongoing_assignee=None
     window = f'DURING ("{start:%Y-%m-%d %H:%M}", "{end:%Y-%m-%d %H:%M}")'
     changes = " OR ".join(f"status CHANGED TO {quoted(status)} {window}" for status in statuses)
     if ongoing_assignee:
-        changes += f' OR (statusCategory = "In Progress" AND assignee WAS {quoted(ongoing_assignee)})'
+        progress = 'statusCategory = "In Progress"' if progress_ids is None else (
+            f"status WAS IN ({','.join(map(quoted, sorted(progress_ids)))}) {window}" if progress_ids else ""
+        )
+        if progress:
+            changes += f' OR ({progress} AND assignee WAS {quoted(ongoing_assignee)} {window})'
     type_filter = f" AND issuetype IN ({','.join(map(quoted, types))})" if types else ""
     jql = f"project = {project}{type_filter} AND ({changes}) ORDER BY key"
-    params = {"jql": jql, "fields": "summary,issuetype,status,assignee,created,timespent", "maxResults": 100}
+    params = {"jql": jql, "fields": "summary,issuetype,status,assignee,created,timespent,parent", "maxResults": 100}
     issues, seen = {}, set()
     while True:
         page = client.request("search/jql", params)
@@ -240,13 +320,19 @@ def fetch_worklogs(client, key, month=None):
 
 
 def report(client, project, types, statuses, month, assignee=None, business=False, clip_month=False, as_of=None):
-    issues = search_issues(client, project, types, statuses, month, assignee if as_of else None)
+    progress_ids = None
+    if as_of and month < datetime.now(PARIS).strftime("%Y-%m"):
+        type_statuses = client.request("project/" + quote(project, safe="") + "/statuses")
+        progress_ids = {str(status["id"]) for typ in type_statuses for status in typ["statuses"]
+                        if (status.get("statusCategory") or {}).get("key") == "indeterminate"}
+    issues = search_issues(client, project, types, statuses, month, assignee if as_of else None, progress_ids)
     histories = fetch_changelogs(client, issues)
     details, tickets, people = [], [], {}
     person_intervals = defaultdict(list)
     for issue in issues:
         key, fields = issue["key"], issue["fields"]
-        done, intervals = build_periods(issue, histories[key], month, statuses, clip_month, as_of)
+        history = histories[key]
+        done, intervals = build_periods(issue, history, month, statuses, clip_month, as_of, progress_ids)
         if not intervals:
             logging.info("%s ignoré : aucune transition Done confirmée dans le mois.", key)
             continue
@@ -274,8 +360,18 @@ def report(client, project, types, statuses, month, assignee=None, business=Fals
                                 hours_business=round(working, 2) if business else None, worklog_hours=round(worklog, 2)))
             if as_of:
                 status = fields.get("status") or {}
-                tickets[-1]["status"] = status.get("name")
-                tickets[-1]["ongoing"] = (status.get("statusCategory") or {}).get("key") == "indeterminate"
+                if progress_ids is None:
+                    tickets[-1]["status"] = status.get("name")
+                    tickets[-1]["ongoing"] = (status.get("statusCategory") or {}).get("key") == "indeterminate"
+                else:
+                    changes = sorted(
+                        ((parse_date(entry["created"]), item) for entry in history for item in entry.get("items", [])
+                         if (item.get("fieldId") or item.get("field") or "").lower() == "status"),
+                        key=lambda change: change[0]
+                    )
+                    ongoing = historical_progress(status, changes, as_of, progress_ids)
+                    tickets[-1]["status"] = "En cours à la clôture" if ongoing else "Done"
+                    tickets[-1]["ongoing"] = ongoing
             person = people.setdefault(account, [name, set(), 0.0, 0.0])
             person[1].add(key)
             person[2] += calendar
@@ -285,7 +381,20 @@ def report(client, project, types, statuses, month, assignee=None, business=Fals
                    total_worklog_hours=round(logged, 2))
               for account, (name, keys, cal, logged) in people.items()]
     logging.info("%d périodes et %d lignes par ticket.", len(details), len(tickets))
-    return dict(periods=details, tickets=tickets, people=totals, candidates=len(issues), as_of=as_of.isoformat() if as_of else None)
+    result = dict(periods=details, tickets=tickets, people=totals, candidates=len(issues), as_of=as_of.isoformat() if as_of else None)
+    if as_of:
+        selected_keys = {ticket["key"] for ticket in tickets}
+        epics = load_epics(client, [issue for issue in issues if issue["key"] in selected_keys])
+        for ticket in tickets:
+            ticket["epic_key"], ticket["epic_name"] = epics.get(ticket["key"], (None, "Non identifié"))
+        groups = epic_breakdown((epics.get(item["key"], (None, "Non identifié"))[0], parse_date(item["start"]), parse_date(item["end"])) for item in details)
+        for ticket in tickets:
+            groups.setdefault(ticket["epic_key"], 0.0)
+        names = {key: name for key, name in epics.values()}
+        result["epics"] = [{"key": key, "name": names.get(key, "Non identifié"), "hours": value,
+                            "tickets": sorted(t["key"] for t in tickets if t["epic_key"] == key)}
+                           for key, value in sorted(groups.items(), key=lambda item: (item[0] is None, item[0] or ""))]
+    return result
 
 
 def write_csv(directory, data):
@@ -326,9 +435,10 @@ def main():
         statuses = [value.strip() for value in args.done_statuses.split(",") if value.strip()]
         if not statuses:
             raise ValueError("Précisez les statuts Jira.")
-        as_of = datetime.now(PARIS) if args.activity else None
-        if as_of and (not args.assignee or not args.json or args.month != as_of.strftime("%Y-%m")):
-            raise ValueError("La vue activité exige un assignee, le mois en cours et --json.")
+        now = datetime.now(PARIS)
+        as_of = min(now, month_bounds(args.month)[1]) if args.activity else None
+        if as_of and (not args.assignee or not args.json or args.month > now.strftime("%Y-%m")):
+            raise ValueError("La vue activité exige un assignee, un mois commencé et --json.")
         data = report(Jira(email, token), args.project, types, statuses, args.month, args.assignee,
                       args.business_hours, args.clip_month or args.activity, as_of)
         if args.json:

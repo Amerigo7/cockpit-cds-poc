@@ -24,7 +24,8 @@ export function businessSheet(snapshot) {
       nb_tickets: totals.nb_tickets,
       total_hours_business: totals.total_hours_business,
       total_worklog_hours: totals.total_worklog_hours,
-      total_business_days: totals.total_hours_business / 9
+      total_business_days: totals.total_hours_business / 9,
+      rounded_business_days: Math.ceil(totals.total_hours_business / 4.5) / 2
     } : null,
     tickets: tickets.map(({ hours_calendar, ...ticket }) => ({ ...ticket, business_days: ticket.hours_business / 9 })),
     periods: periods.map(({ hours_calendar, ...period }) => ({ ...period, business_days: period.hours_business / 9 }))
@@ -40,11 +41,11 @@ export async function getMemberSheet(db, member, month) {
   return row ? { ...businessSheet(row.snapshot), version: row.version, validatedAt: row.validated_at } : null;
 }
 
-async function extractSheet(member, month, activity = false) {
+async function extractSheet(member, month) {
   let stdout;
   try {
     ({ stdout } = await execute('python3', [
-      extractor, '--month', month, '--assignee', member.account, '--business-hours', '--clip-month', '--json', ...(activity ? ['--activity'] : [])
+      extractor, '--month', month, '--assignee', member.account, '--business-hours', '--clip-month', '--json', '--activity'
     ], {
       timeout: 26000,
       maxBuffer: 4 * 1024 * 1024,
@@ -60,23 +61,16 @@ async function extractSheet(member, month, activity = false) {
     periods: report.periods.map(({assignee_accountId, ...period}) => period),
     totals: report.people[0] || null,
     loadedAt: new Date().toISOString(),
-    ...(activity ? { asOf: report.as_of } : {})
+    asOf: report.as_of,
+    epics: report.epics
   });
 }
 
-export async function readMemberActivity(member, month) {
+export async function refreshMemberSheet(db, member, month) {
   const currentMonth = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit'
   }).format(new Date());
-  if (month !== currentMonth) throw Error('L’activité à aujourd’hui est disponible pour le mois en cours.');
-  const key = member.email + ':' + month + ':activity';
-  if (extraction.has(key)) return extraction.get(key);
-  const run = extractSheet(member, month, true);
-  extraction.set(key, run);
-  try { return await run; } finally { extraction.delete(key); }
-}
-
-export async function refreshMemberSheet(db, member, month) {
+  if (!monthFormat.test(month) || month > currentMonth) throw Error('Sélectionnez un mois déjà commencé.');
   const existing = await getMemberSheet(db, member, month);
   if (existing?.validatedAt) return existing;
   const key = member.email + ':' + month;

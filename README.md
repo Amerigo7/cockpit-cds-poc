@@ -184,3 +184,12 @@ indisponible si le compte Jira ne dispose pas des droits nécessaires.
 ```bash
 python3 -m pytest scripts/test_jira_assignee_time.py
 ```
+
+
+La fiche du cockpit présente un seul total mensuel. Le calcul couvre le 1er au
+dernier jour du mois et s’arrête à l’heure de lecture pour le mois en cours.
+Il inclut les tickets OP passés en Done dans le mois et ceux en cours à
+l’arrêté. La validation fige le résultat. Le total en jours est arrondi à la
+demi-journée supérieure. Les tickets remontent jusqu’à leur epic Jira.
+Les plages communes à plusieurs epics sont réparties à parts égales, et
+les tickets sans epic visible apparaissent sous « Non identifié ».
