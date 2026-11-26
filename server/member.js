@@ -33,7 +33,7 @@ function display(sheet) {
   const hours = totals?.total_hours_business ?? 0;
   const days = totals?.total_business_days ?? 0;
   const rounded = totals?.rounded_business_days ?? 0;
-  summary.innerHTML = sheet ? `<div class="panel-body member-total"><p>${periodLabel(month.value)}${sheet.asOf && live ? ' · Calcul arrêté le ' + when.format(new Date(sheet.asOf)) : ''}</p><h2>${number.format(rounded)} j retenus</h2><p>${number.format(hours)} h ouvrées sans doublon · ${number.format(days)} j avant arrondi à la demi-journée supérieure</p></div>` : '';
+  summary.innerHTML = sheet ? `<div class="panel-body member-total"><p>${periodLabel(month.value)}${sheet.asOf && live ? ' · Calcul arrêté le ' + when.format(new Date(sheet.asOf)) : ''}</p><div class="member-total-heading"><h2>${number.format(rounded)} j retenus</h2><strong class="member-validation ${sheet.validatedAt ? 'is-validated' : 'needs-validation'}">${sheet.validatedAt ? 'Validé' : 'À valider'}</strong></div><p>${number.format(hours)} h ouvrées sans doublon · ${number.format(days)} j avant arrondi à la demi-journée supérieure</p></div>` : '';
   epics.innerHTML = sheet?.epics?.length ? `<h2>Activité par epic</h2><p>Les plages communes à plusieurs epics sont réparties à parts égales. L’arrondi s’applique au total du mois.</p>
     <table><thead><tr><th>Epic Jira</th><th>Tickets</th><th>Heures réparties</th><th>Jours avant arrondi</th></tr></thead><tbody>${sheet.epics.map(group=>`<tr><td>${group.key ? jiraLink(group.key) + ' · ' : ''}${escape(group.name)}</td><td>${group.tickets.map(escape).join(', ')}</td><td>${number.format(group.hours)} h</td><td>${number.format(group.hours/9)} j</td></tr>`).join('')}</tbody></table>` : '';
   results.innerHTML = sheet?.tickets.length ? `<details><summary>Détail par ticket (${sheet.tickets.length})</summary><table><thead><tr><th>Ticket</th><th>Epic</th><th>Statut</th><th>Périodes d’assignation</th><th>Jours (9 h / j)</th></tr></thead><tbody>
@@ -62,7 +62,7 @@ async function read(action) {
     $('member-name').textContent = data.name;
     current = data.sheet;
     validate.hidden = !current || Boolean(current.validatedAt);
-    status.textContent = current?.validatedAt ? 'Fiche validée le ' + when.format(new Date(current.validatedAt))
+    status.textContent = current?.validatedAt ? 'Validation enregistrée le ' + when.format(new Date(current.validatedAt))
       : current?.tickets.length ? 'Vérifiez les périodes avant de valider la fiche.' : 'Aucune période d’assignation correspondant au mois.';
     display(current);
   } catch (error) {

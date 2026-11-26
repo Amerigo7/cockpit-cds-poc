@@ -120,10 +120,6 @@ th{font-size:14px}.metric .label,.metric .detail,.panel-head p,.subtle,.tag{font
 .help-popover ol { padding-left: 1.2rem; }
 .help-popover li + li { margin-top: .45rem; }
 
-.project-scroll-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; padding: .6rem .9rem; border-bottom: 1px solid var(--line); background: #f8fafc; }
-.project-scroll-controls label { font-size: .82rem; font-weight: 650; }
-.project-scroll-controls input { min-width: 5rem; flex: 1 1 8rem; accent-color: var(--teal); }
-.project-scroll-controls button:disabled { opacity: .45; cursor: default; }
 .project-scroll .project-table :is(th,td):first-child { position: sticky; left: 0; background: #fff; z-index: 1; box-shadow: 1px 0 0 var(--line); }
 .project-scroll .project-table th:first-child { background: #eef3f8; }
 .project-scroll .project-table td:first-child { min-width: 10rem; }
@@ -144,3 +140,16 @@ th{font-size:14px}.metric .label,.metric .detail,.panel-head p,.subtle,.tag{font
   .help-popover { width: min(23rem, calc(100vw - 1.3rem)); }
   .project-scroll .project-table td:first-child { min-width: 7rem; max-width: 8rem; }
 }
+
+.member-total-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; }
+.member-validation { display: inline-block; border: 1px solid; border-radius: .5rem; padding: .45rem .75rem; font-size: .95rem; }
+.member-validation.is-validated { background: #e4f6eb; border-color: #73b88b; color: #125b32; }
+.member-validation.needs-validation { background: #ffedef; border-color: #d998a3; color: #942236; }
+
+.project-scroll { scrollbar-width: none; }
+.project-scroll::-webkit-scrollbar { display: none; }
+.project-scroll-controls { display: block; padding: .35rem .8rem .65rem; background: white; border-bottom: 0; }
+.project-scroll-controls input { appearance: none; display: block; width: 100%; margin: 0; height: .85rem; cursor: ew-resize; background: #e1e4ea; border-radius: 1rem; }
+.project-scroll-controls input::-webkit-slider-thumb { appearance: none; height: .85rem; width: clamp(2.5rem, 14vw, 8rem); border-radius: 1rem; background: #8a92a2; }
+.project-scroll-controls input::-moz-range-thumb { height: .85rem; width: clamp(2.5rem, 14vw, 8rem); border: 0; border-radius: 1rem; background: #8a92a2; }
+.project-scroll-controls input:focus-visible { outline: 2px solid #5d6779; }

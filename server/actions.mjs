@@ -30,6 +30,8 @@ export function applyAction(store, who, action, args, cockpitId) {
       if (definition.owner !== cockpit.owner) throw Error('L’owner est défini à la création du PO.');
       return D.saveDefinition(cockpit, definition, who, activate === true);
     }
+    case 'forecast-device':
+      return D.confirmForecastDevice(cockpit, args[0], args[1], who);
     case 'expense':
       return D.saveExpense(cockpit, args[0], args[1], who, args[2]);
     case 'createInvoice':

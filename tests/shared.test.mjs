@@ -58,3 +58,24 @@ test('seul l’owner désigné voit l’alerte et peut valider une facture reçu
   assert.equal(pendingInvoiceDiscrepancies(c, 'jennifer').length, 0);
   assert.equal(finances(c).actual, 970);
 });
+
+test('confirmation des ETP : effet futur persistant uniquement sur le projet choisi', async () => {
+  const D = await import('../dist/domain.js');
+  const store = D.initialStore();
+  const c = store.cockpits[0];
+  D.saveDefinition(c, structuredClone(c), 'jennifer', true);
+  const [chosen, other] = c.projects;
+  const before = D.finances(c);
+  const device = {...chosen.device,dev:0};
+  const proposed = D.finances(c,c.reportMonth,{[chosen.id]:device});
+  assert.throws(()=>applyAction(store,'lassaad','forecast-device',[chosen.id,device],c.id),/profil/);
+  applyAction(store,'jennifer','forecast-device',[chosen.id,device],c.id);
+  const restored = JSON.parse(JSON.stringify(store)).cockpits[0];
+  const after = D.finances(restored);
+  assert.equal(after.forecast,proposed.forecast);
+  assert.equal(after.rows[0].plannedPast,before.rows[0].plannedPast);
+  assert.equal(after.rows[1].forecast,before.rows[1].forecast);
+  assert.equal(D.forecastDeviceAt(chosen,'2027-01').dev,3);
+  assert.equal(D.forecastDeviceAt(chosen,'2027-02').dev,0);
+  assert.equal(other.forecastDevices,undefined);
+});

@@ -277,8 +277,6 @@ function updateProjectScroll() {
   range.max = String(max);
   range.value = String(Math.round(region.scrollLeft));
   range.setAttribute('aria-valuetext', Math.round((region.scrollLeft / (max || 1)) * 100) + ' %');
-  controls.querySelector('[data-id="left"]').disabled = region.scrollLeft < 2;
-  controls.querySelector('[data-id="right"]').disabled = max - region.scrollLeft < 2;
 }
 let simulation = null;
 function openForecastSimulator() {
@@ -286,28 +284,42 @@ function openForecastSimulator() {
   const base = D.finances(c);
   if (base.forecast === null || !c.projects.length) throw Error('Complétez le paramétrage pour simuler les ETP.');
   const projectId = [...base.rows].sort((a,b)=>(b.forecast-b.budget)-(a.forecast-a.budget))[0].id;
-  simulation = { base, projectId, devices: {} };
-  modal.innerHTML = `<div class="dialog-header"><h2>Simuler les ETP</h2><button type="button" class="close" data-action="close" aria-label="Fermer">×</button></div>
+  simulation = { base, projectId, device: null };
+  modal.innerHTML = `<div class="dialog-header"><h2>Modifier les ETP</h2><button type="button" class="close" data-action="close" aria-label="Fermer">×</button></div>
     <div class="body forecast-simulation"><p>Les ajustements s’appliquent aux mois futurs sans ventilation enregistrée, après l’arrêté de ${V.month(c.reportMonth)}.</p>
     <label class="field">Projet<select id="simulation-project">${c.projects.map(p=>`<option value="${V.h(p.id)}"${p.id===projectId?' selected':''}>${V.h(p.name||'Projet sans nom')}</option>`).join('')}</select></label>
     <div id="simulation-sliders"></div><div id="simulation-result" aria-live="polite"></div>
-    <button type="button" class="btn" data-action="reset-simulation">Réinitialiser les jauges</button></div>`;
+    <p id="simulation-feedback" role="status"></p>
+    <div class="inline"><button type="button" class="btn" data-action="reset-simulation">Réinitialiser les jauges</button>
+    <button type="button" class="btn teal" data-action="confirm-simulation">Confirmer</button></div></div>`;
   renderSimulatorSliders();
   modal.showModal();
 }
 function renderSimulatorSliders() {
   const p = current().projects.find(item=>item.id===simulation.projectId);
-  const device = simulation.devices[p.id] || p.device;
+  const from = D.nextForecastMonth(current(),p);
+  const initial = D.forecastDeviceAt(p,from || current().reportMonth);
+  const device = simulation.device || initial;
   document.getElementById('simulation-sliders').innerHTML = D.ROLES.map(role=>{
     const currentValue = Number(device[role.id]) || 0;
-    const initialValue = Number(p.device[role.id]) || 0;
-    return `<label class="simulation-slider"><span>${V.h(role.name)}</span><input type="range" min="0" max="${Math.max(5,Math.ceil(initialValue+2))}" step="0.5" value="${currentValue}" data-simulation-role="${V.h(role.id)}"><output>${V.dec(currentValue)} ETP</output></label>`;
+    const initialValue = Number(initial[role.id]) || 0;
+    return `<label class="simulation-slider"><span>${V.h(role.name)}</span><input type="range" min="0" max="${Math.max(5,Math.ceil(initialValue+2))}" step="0.5" value="${currentValue}" data-simulation-role="${V.h(role.id)}"${!from||current().rates[role.id]<=0?' disabled':''}><output>${V.dec(currentValue)} ETP</output></label>`;
   }).join('');
   updateSimulator();
 }
 function updateSimulator() {
-  const {base,projectId,devices} = simulation;
-  const forecast = D.finances(current(), current().reportMonth, devices);
+  const {base,projectId,device} = simulation;
+  const c = current();
+  const source = c.projects.find(p=>p.id===projectId);
+  const from = D.nextForecastMonth(c, source);
+  const initialDevice = D.forecastDeviceAt(source, from || c.reportMonth);
+  const changed = device && D.ROLES.some(role=>device[role.id]!==initialDevice[role.id]);
+  const affected = from && D.monthsBetween(source.start,source.end).some(m=>m>=from&&!c.expenses[m]&&!D.getInvoiceForMonth(c,m)&&D.daysInProjectMonth(source,m,c.monthlyDays)>0);
+  modal.querySelector('[data-action="confirm-simulation"]').disabled = !changed || !affected;
+  document.getElementById('simulation-feedback').textContent = affected
+    ? 'La confirmation met à jour uniquement le projet sélectionné à partir de ' + V.month(from) + '.'
+    : 'Ce projet n’a plus de mois futur sans ventilation à projeter.';
+  const forecast = D.finances(c, c.reportMonth, device ? {[projectId]:device} : {});
   const project = forecast.rows.find(p=>p.id===projectId);
   const initial = base.rows.find(p=>p.id===projectId);
   const card = (title, before, result)=>{
@@ -327,7 +339,7 @@ function number(form,name){const raw=value(form,name).trim();return raw===''?0:N
 function readDefinition(){const form=document.getElementById('setup-form'),base=setupDraft||current();if(!form)return structuredClone(base);const next={...structuredClone(base)};for(const name of ['name','poRef','start','end','reportMonth','openingMonth','owner','coOwner','supplier'])next[name]=value(form,name).trim();for(const name of ['year','budget','monthlyDays'])next[name]=number(form,name);next.rates=Object.fromEntries(D.ROLES.map(r=>[r.id,number(form,`rate-${r.id}`)]));next.projects=[...form.querySelectorAll('[data-project]')].map(el=>{const p=base.projects.find(p=>p.id===el.dataset.project);const get=name=>el.querySelector(`[name="p-${name}"]`)?.value??'';const optional=name=>get(name).trim()===''?null:Number(get(name));return {...p,name:get('name').trim(),category:get('category'),budget:Number(get('budget')||0),start:get('start'),end:get('end'),openingValidated:Number(get('openingValidated')||0),device:Object.fromEntries(D.ROLES.map(r=>[r.id,Number(get('device-'+r.id)||0)])),pointsPlanned:optional('pointsPlanned'),pointsDelivered:optional('pointsDelivered'),epics:get('epics').trim(),notes:get('notes').trim()};});return next;}
 function updateSplit(){const c=readDefinition(),el=document.getElementById('split-summary');if(!el)return;const allocated=D.sum(c.projects.map(p=>p.budget)),left=D.moneyRound(c.budget-allocated);el.innerHTML=`<div><span class="muted small">Budget du PO</span><strong>${V.euro(c.budget)}</strong></div><div><span class="muted small">Réparti sur ${c.projects.length} projet(s)</span><strong>${V.euro(allocated)}</strong></div><div class="${left===0?'text-green':'text-amber'}"><span class="small">${left<0?'Dépassement à corriger':'Reste à répartir'}</span><strong>${V.euro(left)}</strong></div>`;for(const box of document.querySelectorAll('[data-project]')){const p=c.projects.find(p=>p.id===box.dataset.project);box.querySelector('.device-heading span').textContent='ETP par pas de 0,5 · '+D.staffingText(p.device);}}
 function allocationRows(){return [...document.querySelectorAll('[data-allocation]')].flatMap(row=>[...row.querySelectorAll('[data-role]')].map(input=>({projectId:row.dataset.allocation==='unknown'?null:row.dataset.allocation,roleId:input.dataset.role,days:Number(input.value||0),note:row.querySelector('[name="unknown-note"]')?.value||''})));}
-function updateAllocation(){const c=current(),rows=allocationRows();let total=0,over=[];for(const row of document.querySelectorAll('[data-allocation]')){let n=0;const p=c.projects.find(p=>p.id===row.dataset.allocation);for(const input of row.querySelectorAll('[data-role]')){const days=Number(input.value||0),r=input.dataset.role;n+=days*c.rates[r];if(p&&days>D.daysInProjectMonth(p,selectedMonth,c.monthlyDays)*p.device[r]+.01)over.push(`${p.name} / ${D.ROLES.find(x=>x.id===r).short}`);}row.querySelector('[data-row-total]').textContent=V.euro(n);total+=n;}const el=document.getElementById('allocation-total');if(el)el.textContent=V.euro(total);const warning=document.getElementById('capacity-feedback');if(warning)warning.textContent=over.length?'Au-dessus du dispositif prévu : '+over.join(', ')+'. Vérifiez les jours avant enregistrement.':'';}
+function updateAllocation(){const c=current(),rows=allocationRows();let total=0,over=[];for(const row of document.querySelectorAll('[data-allocation]')){let n=0;const p=c.projects.find(p=>p.id===row.dataset.allocation);for(const input of row.querySelectorAll('[data-role]')){const days=Number(input.value||0),r=input.dataset.role;n+=days*c.rates[r];if(p&&days>D.daysInProjectMonth(p,selectedMonth,c.monthlyDays)*D.forecastDeviceAt(p,selectedMonth)[r]+.01)over.push(`${p.name} / ${D.ROLES.find(x=>x.id===r).short}`);}row.querySelector('[data-row-total]').textContent=V.euro(n);total+=n;}const el=document.getElementById('allocation-total');if(el)el.textContent=V.euro(total);const warning=document.getElementById('capacity-feedback');if(warning)warning.textContent=over.length?'Au-dessus du dispositif prévu : '+over.join(', ')+'. Vérifiez les jours avant enregistrement.':'';}
 function openInvoice(id){const i=D.visiblePoInvoices(current(),who).find(i=>i.id===id);if(!i)throw Error('Facture introuvable');modal.innerHTML=V.invoiceDetail(current(),i,who);modalInvoice=id;modalDirty=false;if(!modal.open)modal.showModal();}
 function invoicePatch(){const form=document.getElementById('invoice-form');return {number:value(form,'number'),date:value(form,'date'),supplierNote:value(form,'supplierNote'),lines:[...form.querySelectorAll('[data-invoice-line]')].map(row=>({id:row.dataset.invoiceLine,billedDays:Number(row.querySelector('[name="billedDays"]').value||0),billedRate:Number(row.querySelector('[name="billedRate"]').value||0)}))};}
 function updateInvoice(){const i=current().invoices.find(i=>i.id===modalInvoice);if(!i)return;const patch=invoicePatch(),billed=D.sum(patch.lines.map(l=>D.moneyRound(l.billedDays*l.billedRate))),delta=D.moneyRound(billed-D.invoiceTotals(i).expected);for(const row of modal.querySelectorAll('[data-invoice-line]')){const l=patch.lines.find(l=>l.id===row.dataset.invoiceLine);row.querySelector('[data-line-total]').textContent=V.euro(l.billedDays*l.billedRate);}document.getElementById('billed-total').textContent=V.euro(billed);document.getElementById('invoice-delta').textContent=(delta>0?'+':'')+V.euro(delta);const match=document.getElementById('invoice-match');match.textContent=delta?'Écart à vérifier : une explication fournisseur est requise avant envoi.':'Conforme à la ventilation';match.className='alert '+(delta?'':'success');}
@@ -344,15 +356,21 @@ document.addEventListener('click',async event=>{const b=event.target.closest('[d
     return;
   }
   who='';setupDraft=null;render();
-}else if(action==='help-continue'){tab=who==='lassaad'?'allocation':'budget';render();}else if(action==='nav'){if(!abandon())return;tab=id;setupDraft=null;render();}else if(action==='sync-state'){await syncState(true);}else if(action==='project-scroll'||action==='show-forecast-columns'){
-  const region=document.getElementById('project-scroll-region');
-  if(region){
-    if(action==='show-forecast-columns')region.scrollTo({left:region.scrollWidth,behavior:'smooth'});
-    else region.scrollBy({left:(id==='left'?-1:1)*Math.max(200,region.clientWidth*.7),behavior:'smooth'});
+}else if(action==='help-continue'){tab=who==='lassaad'?'allocation':'budget';render();}else if(action==='nav'){if(!abandon())return;tab=id;setupDraft=null;render();}else if(action==='sync-state'){await syncState(true);}else if(action==='simulate-etp'){openForecastSimulator();}else if(action==='reset-simulation'&&simulation){
+  simulation.device=null;renderSimulatorSliders();
+}else if(action==='confirm-simulation'&&simulation){
+  const {projectId,device}=simulation;
+  const project=current().projects.find(p=>p.id===projectId);
+  try {
+    await dispatch('forecast-device',[projectId,device],c=>D.confirmForecastDevice(c,projectId,device,who));
+  } catch(error) {
+    document.getElementById('simulation-feedback').textContent=error.message;
+    return;
   }
-}else if(action==='simulate-etp'){openForecastSimulator();}else if(action==='reset-simulation'&&simulation){
-  simulation.devices={};renderSimulatorSliders();
-}else if(action==='jira-worklogs'){await openJiraWorklogs();}else if(action==='jira-apply'){applyJiraWorklogs();}else if(action==='jira-epics'){openEpicPicker(id);}else if(action==='epic-toggle'&&epicPicker){if(epicPicker.selected.has(id))epicPicker.selected.delete(id);else epicPicker.selected.add(id);updateEpicSelection();}else if(action==='epic-cancel'){closeEpicPicker(true);}else if(action==='epic-more'){await loadEpics(true);}else if(action==='epic-apply'&&epicPicker){const keys=[...epicPicker.selected].join(', ');epicPicker.input.value=keys;epicPicker.field.querySelector('[data-epic-label]').textContent=keys||'Sélectionner les epics';dirty=true;closeEpicPicker(true);}else if(action==='new'){if(!abandon())return;if(shared){openNewPo();return;}else transact((c,s)=>{const x=D.newCockpit();s.cockpits.push(x);s.activeId=x.id;});tab='setup';setupDraft=null;selectedMonth='';render();}else if(action==='add-project'){setupDraft=readDefinition();setupDraft.projects.push(D.newProject(setupDraft.year));render();dirty=true;document.querySelector('.project-form:last-child').scrollIntoView({block:'center',behavior:'smooth'});}else if(action==='remove-project'){const draft=readDefinition(),p=draft.projects.find(p=>p.id===id),c=current();const linked=c.invoices.some(i=>i.lines.some(l=>l.projectId===id))||Object.values(c.expenses).some(s=>s.rows.some(r=>r.projectId===id))||p.openingValidated>0;if(linked)throw Error('Ce projet a un historique. Ajustez sa date de fin au lieu de le supprimer.');if(!confirm('Retirer ce projet du brouillon ?'))return;draft.projects=draft.projects.filter(p=>p.id!==id);setupDraft=draft;render();dirty=true;}else if(action==='prefill'){if(!confirm('Remplacer les jours saisis par une suggestion issue du dispositif prévu ? Vérifiez ensuite les jours réellement travaillés.'))return;for(const row of document.querySelectorAll('[data-allocation]')){const p=current().projects.find(p=>p.id===row.dataset.allocation);for(const input of row.querySelectorAll('[data-role]'))if(!input.disabled)input.value=p?Math.round(D.daysInProjectMonth(p,selectedMonth,current().monthlyDays)*p.device[input.dataset.role]*2)/2:0;}dirty=true;updateAllocation();}else if(action==='create-invoice'){if(dirty)throw Error('Validez les modifications de la ventilation avant de créer la facture.');const result=await dispatch('createInvoice',[selectedMonth],c=>D.createInvoice(c,selectedMonth,who));render();openInvoice(result.id);notify('Facture créée. Vérifiez les jours et les TJM facturés.');}else if(action==='revise'){const reason=prompt('Motif de reprise de la ventilation (la facture sera conservée comme annulée) :');if(reason===null)return;await dispatch('revise',[b.dataset.month,reason],c=>D.reviseExpense(c,b.dataset.month,reason,who));render();notify('Ventilation rouverte ; la facture précédente est archivée.');}else if(action==='invoice'){if(!abandon())return;openInvoice(id);}else if(action==='project'){const p=current().projects.find(p=>p.id===id);modal.innerHTML=V.projectDetail(current(),p,who);modalInvoice=null;modalDirty=false;modal.showModal();}else if(action==='close'){closeModal();}else if(action==='csv'){csv();}else if(action==='backup'){download('cockpit-sauvegarde.json',JSON.stringify(store,null,2),'application/json');notify('Sauvegarde JSON exportée.');}else if(action==='download-invoice'){if(modalDirty&&who==='lassaad'){const patch=invoicePatch();await dispatch('editInvoice',[id,patch,false],c=>D.editInvoice(c,id,patch,who));modalDirty=false;}const i=D.visiblePoInvoices(current(),who).find(i=>i.id===id);if(!i)throw Error('Facture introuvable');download(i.number.replace(/[^a-zA-Z0-9_-]/g,'_')+'.html',V.invoiceDocument(current(),i),'text/html;charset=utf-8');}}catch(error){notify(error.message,true);}});
+  closeModal();
+  render();
+  notify('Nouveaux ETP prévisionnels enregistrés pour '+project.name+'.');
+}else if(action==='jira-worklogs'){await openJiraWorklogs();}else if(action==='jira-apply'){applyJiraWorklogs();}else if(action==='jira-epics'){openEpicPicker(id);}else if(action==='epic-toggle'&&epicPicker){if(epicPicker.selected.has(id))epicPicker.selected.delete(id);else epicPicker.selected.add(id);updateEpicSelection();}else if(action==='epic-cancel'){closeEpicPicker(true);}else if(action==='epic-more'){await loadEpics(true);}else if(action==='epic-apply'&&epicPicker){const keys=[...epicPicker.selected].join(', ');epicPicker.input.value=keys;epicPicker.field.querySelector('[data-epic-label]').textContent=keys||'Sélectionner les epics';dirty=true;closeEpicPicker(true);}else if(action==='new'){if(!abandon())return;if(shared){openNewPo();return;}else transact((c,s)=>{const x=D.newCockpit();s.cockpits.push(x);s.activeId=x.id;});tab='setup';setupDraft=null;selectedMonth='';render();}else if(action==='add-project'){setupDraft=readDefinition();setupDraft.projects.push(D.newProject(setupDraft.year));render();dirty=true;document.querySelector('.project-form:last-child').scrollIntoView({block:'center',behavior:'smooth'});}else if(action==='remove-project'){const draft=readDefinition(),p=draft.projects.find(p=>p.id===id),c=current();const linked=c.invoices.some(i=>i.lines.some(l=>l.projectId===id))||Object.values(c.expenses).some(s=>s.rows.some(r=>r.projectId===id))||p.openingValidated>0;if(linked)throw Error('Ce projet a un historique. Ajustez sa date de fin au lieu de le supprimer.');if(!confirm('Retirer ce projet du brouillon ?'))return;draft.projects=draft.projects.filter(p=>p.id!==id);setupDraft=draft;render();dirty=true;}else if(action==='prefill'){if(!confirm('Remplacer les jours saisis par une suggestion issue du dispositif prévu ? Vérifiez ensuite les jours réellement travaillés.'))return;for(const row of document.querySelectorAll('[data-allocation]')){const p=current().projects.find(p=>p.id===row.dataset.allocation);for(const input of row.querySelectorAll('[data-role]'))if(!input.disabled)input.value=p?Math.round(D.daysInProjectMonth(p,selectedMonth,current().monthlyDays)*D.forecastDeviceAt(p,selectedMonth)[input.dataset.role]*2)/2:0;}dirty=true;updateAllocation();}else if(action==='create-invoice'){if(dirty)throw Error('Validez les modifications de la ventilation avant de créer la facture.');const result=await dispatch('createInvoice',[selectedMonth],c=>D.createInvoice(c,selectedMonth,who));render();openInvoice(result.id);notify('Facture créée. Vérifiez les jours et les TJM facturés.');}else if(action==='revise'){const reason=prompt('Motif de reprise de la ventilation (la facture sera conservée comme annulée) :');if(reason===null)return;await dispatch('revise',[b.dataset.month,reason],c=>D.reviseExpense(c,b.dataset.month,reason,who));render();notify('Ventilation rouverte ; la facture précédente est archivée.');}else if(action==='invoice'){if(!abandon())return;openInvoice(id);}else if(action==='project'){const p=current().projects.find(p=>p.id===id);modal.innerHTML=V.projectDetail(current(),p,who);modalInvoice=null;modalDirty=false;modal.showModal();}else if(action==='close'){closeModal();}else if(action==='csv'){csv();}else if(action==='backup'){download('cockpit-sauvegarde.json',JSON.stringify(store,null,2),'application/json');notify('Sauvegarde JSON exportée.');}else if(action==='download-invoice'){if(modalDirty&&who==='lassaad'){const patch=invoicePatch();await dispatch('editInvoice',[id,patch,false],c=>D.editInvoice(c,id,patch,who));modalDirty=false;}const i=D.visiblePoInvoices(current(),who).find(i=>i.id===id);if(!i)throw Error('Facture introuvable');download(i.number.replace(/[^a-zA-Z0-9_-]/g,'_')+'.html',V.invoiceDocument(current(),i),'text/html;charset=utf-8');}}catch(error){notify(error.message,true);}});
 document.addEventListener('submit',async event=>{const form=event.target;if(form.id==='new-po-form'){
   event.preventDefault();
   if(saving)return;
@@ -388,7 +406,7 @@ document.addEventListener('input',event=>{
   }
   if(simulation&&event.target.hasAttribute('data-simulation-role')){
     const project=current().projects.find(p=>p.id===simulation.projectId);
-    const values=simulation.devices[project.id]??={...project.device};
+    const values=simulation.device??={...D.forecastDeviceAt(project,D.nextForecastMonth(current(),project)||current().reportMonth)};
     const value=Number(event.target.value);
     values[event.target.dataset.simulationRole]=value;
     event.target.nextElementSibling.textContent=V.dec(value)+' ETP';
@@ -407,7 +425,7 @@ document.addEventListener('input',event=>{
 if(event.target.closest('#setup-form')){dirty=true;updateSplit();}else if(event.target.closest('#allocation-form')){dirty=true;updateAllocation();}else if(event.target.closest('#invoice-form')){modalDirty=true;updateInvoice();}else if(event.target.closest('#review-form'))modalDirty=true;});
 document.addEventListener('change',event=>{
   if(event.target.id==='simulation-project'&&simulation){
-    simulation.projectId=event.target.value;renderSimulatorSliders();return;
+    simulation.projectId=event.target.value;simulation.device=null;renderSimulatorSliders();return;
   }
 
   if(event.target.hasAttribute('data-epic-check')&&epicPicker){
