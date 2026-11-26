@@ -6,6 +6,7 @@ import { applyAction } from './actions.mjs';
 import { sessions, loginPage } from './session.mjs';
 import { memberConfig, getMemberSheet, refreshMemberSheet, validateMemberSheet, businessSheet } from './member.mjs';
 import { resetReceiptWorkspace } from './reset-receipt.mjs';
+import { resetDefaultDemo } from './reset-default-demo.mjs';
 import { searchEpics, verifyNewEpicLinks, previewWorklogs } from './jira.mjs';
 
 const roles = ['laurent', 'jennifer', 'lassaad'];
@@ -44,6 +45,7 @@ await db.query(`
 `);
 
 await resetReceiptWorkspace(db);
+await resetDefaultDemo(db);
 
 const assets = { '/cockpit': ['index.html', 'text/html'], '/style.css': ['style.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'], '/views.js': ['views.js', 'text/javascript'], '/domain.js': ['domain.js', 'text/javascript'] };
 function json(res, status, payload) {
