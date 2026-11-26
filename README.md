@@ -110,3 +110,86 @@ dans **Settings → Pages**, puis lancez le workflow.
 
 Chaque navigateur conserve son propre état de démonstration. Les
 contributions sur GitHub partagent le code et les discussions de revue.
+
+## Instance partagée et Jira OP
+
+Laurent et Jennifer créent les PO avec **Nouveau PO** et gardent un cockpit
+par référence. Chaque navigateur sélectionne son PO indépendamment. Les
+ventilations et factures restent rattachées au PO sélectionné.
+
+Dans **Initialisation**, ouvrez **Choisir les epics Jira OP** sur un projet.
+Cherchez par clé ou titre, choisissez les epics puis enregistrez le
+paramétrage. Pour une epic créée plus tard, relancez la recherche depuis
+le même projet. Les clés rattachées définissent le périmètre Jira du projet.
+Lassaad peut ouvrir **Préremplir depuis Jira** dans la ventilation du mois.
+L’aperçu consulte les temps visibles sur les tickets et sous-tâches des
+epics rattachées. Il affiche le projet, l’intervenant, les tickets et les heures.
+Lassaad choisit les profils, ajuste la durée d’un jour si nécessaire
+(8 h par défaut), puis applique les propositions arrondies à la demi-journée.
+La grille reste modifiable et doit être enregistrée avant facturation.
+
+L’instance partagée interroge Jira Cloud depuis le serveur. Renseignez
+`JIRA_EMAIL` et `JIRA_API_TOKEN` dans Render avec un compte autorisé à
+consulter OP et un jeton de lecture compatible avec l’API de recherche Jira.
+Le catalogue est accessible à Laurent et Jennifer. Les secrets restent
+dans l’environnement du serveur. La démo statique conserve la saisie
+manuelle des clés.
+
+
+Dans l’instance partagée, le mode d’emploi s’affiche lors de la première
+connexion par profil et par navigateur. **Help me · Mode d’emploi** permet
+de le rouvrir. Laurent et Jennifer peuvent créer des PO. L’owner Accor
+est désigné à la création, avec Laurent par défaut. Seul l’owner consulte
+les factures reçues de son PO et voit une alerte dans le cockpit lorsqu’une
+facture à valider présente un écart de montant. Lassaad valide les
+imputations par projet et profil pour le mois choisi avant de créer la
+facture fournisseur.
+
+## Fiche mensuelle membre CDS
+
+Sur l’instance Render, choisissez **Membre CDS**, puis connectez-vous avec
+votre adresse Jira et votre mot de passe du cockpit. **Actualiser depuis
+Jira** lit les tickets OP ayant atteint Done pendant le mois, quel que soit leur type. La fiche retient les périodes
+d’assignation au membre dans le mois, jusqu’au dernier passage en Done.
+Les heures ouvrées couvrent le lundi au vendredi, de 9 h à 18 h en heure
+de Paris. Seules ces heures entrent dans la fiche. Conversion sans arrondi à la demi-journée : 9 h = 1 j et 4,5 h = 0,5 j. Le total mensuel fusionne les périodes d’assignation qui se chevauchent. Le détail reste disponible par ticket. Les temps saisis dans Jira restent une colonne de comparaison.
+
+La validation fige la fiche. Lassaad la retrouve ensuite dans **Fiches CDS**
+pour son contrôle. Ce parcours ne transforme pas la durée d’assignation
+en jours facturables et n’alimente pas automatiquement les ventilations.
+
+Le pilote est configuré côté serveur avec `CDS_MEMBER_EMAIL`,
+`CDS_MEMBER_NAME`, `CDS_MEMBER_JIRA_ID` et `CDS_MEMBER_PASSWORD`.
+Les identifiants Jira `JIRA_EMAIL` et `JIRA_API_TOKEN` sont ceux du
+compte de lecture. Le jeton doit permettre de lire les historiques et
+les temps sur OP.
+
+### Lancer l’extraction en ligne de commande
+
+Python 3.11 ou supérieur. Le script utilise la bibliothèque standard.
+Chargez les variables Jira dans l’environnement et lancez depuis la
+racine du dépôt :
+
+```bash
+python3 scripts/jira_assignee_time.py --project OP --month 2026-11 --assignee "Prénom NOM" --business-hours
+```
+
+Les trois CSV sont écrits dans `output/` par défaut. Le filtre
+`--assignee` accepte aussi un accountId Jira. Le CLI mesure les périodes
+depuis la création du ticket. Utilisez `--clip-month` pour reproduire le
+périmètre mensuel de la fiche cockpit. Les CSV séparent périodes, totaux
+par ticket et totaux par personne. Un temps de comparaison peut être
+indisponible si le compte Jira ne dispose pas des droits nécessaires.
+
+```bash
+python3 -m pytest scripts/test_jira_assignee_time.py
+```
+
+
+La fiche du cockpit présente un seul total mensuel. Le calcul couvre le 1er au
+dernier jour du mois et s’arrête à l’heure de lecture pour le mois en cours.
+Il inclut les tickets OP passés en Done dans le mois et ceux en cours à
+l’arrêté. La validation fige le résultat. Le total en jours est arrondi à la
+demi-journée supérieure. Les tickets remontent jusqu’à leur epic Jira.
+Les plages communes à plusieurs epics sont réparties à parts égales, et
+les tickets sans epic visible apparaissent sous « Non identifié ».

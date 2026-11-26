@@ -26,3 +26,27 @@ test('interface : formulaire initial complet et dispositif / dates dans les proj
 test('interface : initialisation Accor pour les deux profils, factures reçues Laurent uniquement',()=>{const s=D.initialStore();const j=V.shell(s,'jennifer','budget',''),l=V.shell(s,'laurent','budget',''),f=V.shell(s,'lassaad','budget','');assert.match(j,/Initialisation/);assert.match(l,/Initialisation/);assert.doesNotMatch(j,/data-id="invoices"/);assert.match(l,/Factures reçues/);assert.match(f,/Ventilation mensuelle/);assert.match(f,/Mes factures/);assert.doesNotMatch(f,/data-id="setup"/);});
 test('interface : contrôle facture, export précis aux centimes et échappement des saisies',()=>{const c=active(),i=sheet(c,'2027-01',c.projects[0].id,.5);const html=V.invoiceDetail(c,i,'lassaad');assert.match(html,/billedDays/);assert.match(html,/billedRate/);assert.match(html,/Écart signé/);assert.match(html,/237,5/);c.projects[0].name='<img src=x onerror=alert(1)>';assert.doesNotMatch(V.budget(c,'laurent'),/<img/);i.number='<script>alert(1)</script>';assert.doesNotMatch(V.invoiceDocument(c,i),/<script/);});
 test('bundle public : aucun snapshot Excel, source transcript ou fichier privé',()=>{const assets=fs.readdirSync(new URL('../dist/',import.meta.url));assert.deepEqual(assets.sort(),['app.js','domain.js','index.html','style.css','views.js']);for(const filename of assets)assert.doesNotMatch(fs.readFileSync(new URL('../dist/'+filename,import.meta.url),'utf8'),/HQ00106177|1\s?306\s?470|\/Users\/amerigo/);});
+
+test('ventilation : la facture validée affiche un statut définitif et ne propose pas de reprise', () => {
+  const c = active();
+  const i = sheet(c);
+  D.sendInvoice(c,i.id,'lassaad');
+  assert.match(V.allocation(c,i.month,true), /Facture en attente de validation par l’owner/);
+  D.validateInvoice(c,i.id,'','laurent');
+  const html = V.allocation(c,i.month,true);
+  assert.match(html,/Facture validée par l’owner/);
+  assert.doesNotMatch(html,/en attente de validation|data-action="revise"/);
+});
+
+test('simulateur ETP : seuls les mois futurs non ventilés changent', () => {
+  const c = active();
+  const p = c.projects[0];
+  D.saveExpense(c,'2027-02',[{projectId:p.id,roleId:'dev',days:2}],'lassaad');
+  const base = D.finances(c);
+  const simulated = D.finances(c,c.reportMonth,{[p.id]:{...p.device,dev:0}});
+  assert.equal(simulated.rows[0].plannedPast,base.rows[0].plannedPast);
+  assert.equal(simulated.rows[0].forecast,base.rows[0].forecast - 4 * 20 * p.device.dev * c.rates.dev);
+  assert.equal(simulated.rows[0].actual,base.rows[0].actual);
+  assert.equal(simulated.rows[1].forecast,base.rows[1].forecast);
+  assert.equal(D.finances(c).forecast,base.forecast);
+});
