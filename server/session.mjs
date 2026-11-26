@@ -48,7 +48,16 @@ export function sessions(db, passwords) {
   };
 }
 
-export function loginPage(res, error = '', memberEnabled = false, selectedRole = '') {
+export function adminNavigation(current, memberEnabled) {
+  const profiles = [['laurent', 'Laurent'], ['jennifer', 'Jennifer'], ['lassaad', 'Lassaad']];
+  if (memberEnabled) profiles.push(['member', 'Membre CDS']);
+  return `<nav class="admin-views" aria-label="Changer de vue admin">
+    <strong>Session admin</strong><span>Afficher la vue</span>
+    ${profiles.map(([id, name]) => `<a href="/admin/${id}/cockpit"${id === current ? ' aria-current="page"' : ''}>${name}</a>`).join('')}
+  </nav>`;
+}
+
+export function loginPage(res, error = '', memberEnabled = false, selectedRole = '', adminEnabled = false) {
   res.writeHead(error ? 401 : 200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Connexion · Cockpit Owners Platforms</title><link rel="stylesheet" href="/style.css"></head>
@@ -63,6 +72,7 @@ export function loginPage(res, error = '', memberEnabled = false, selectedRole =
       <label><input type="radio" name="role" value="jennifer" ${selectedRole === 'jennifer' ? 'checked' : ''}><span><strong>Jennifer</strong><small>Accor · Pilotage</small></span></label>
       <label><input type="radio" name="role" value="lassaad" ${selectedRole === 'lassaad' ? 'checked' : ''}><span><strong>Lassaad</strong><small>Fournisseur · Responsable CDS</small></span></label>
       ${memberEnabled ? `<label><input type="radio" name="role" value="member" ${selectedRole === 'member' ? 'checked' : ''}><span><strong>Membre CDS</strong><small>Ma fiche d’imputation</small></span></label>` : ''}
+      ${adminEnabled ? `<label><input type="radio" name="role" value="admin" ${selectedRole === 'admin' ? 'checked' : ''}><span><strong>Admin</strong><small>Passer d’une vue à l’autre</small></span></label>` : ''}
     </fieldset>
     ${memberEnabled ? '<label class="field auth-member-email">E-mail Jira<input type="email" name="email" autocomplete="username" disabled></label>' : ''}
     <label class="field">Mot de passe<input type="password" name="password" autocomplete="current-password" required></label>

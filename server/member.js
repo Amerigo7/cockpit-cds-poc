@@ -43,7 +43,7 @@ function jiraLink(key) {
   return `<a target="_blank" rel="noopener noreferrer" href="https://accor-it.atlassian.net/browse/${encodeURIComponent(key)}">${escape(key)}</a>`;
 }
 async function request(action) {
-  const response = await fetch('/api/member/sheet?' + new URLSearchParams({month:month.value}), action ? {
+  const response = await fetch('./api/member/sheet?' + new URLSearchParams({month:month.value}), action ? {
     method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action,version:current?.version})
   } : {});
   if (response.status === 401) { location.replace('/'); throw Error('Reconnectez-vous.'); }

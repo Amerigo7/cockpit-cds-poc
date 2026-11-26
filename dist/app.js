@@ -13,7 +13,7 @@ async function dispatch(action, args, local) {
   if (!shared) return transact(local);
   saving = true;
   try {
-    const response = await fetch('/api/state', {
+    const response = await fetch('./api/state', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({revision, action, args, cockpitId: store.activeId})
@@ -44,7 +44,7 @@ function openNewPo() {
 }
 async function startShared() {
   try {
-    const response = await fetch('/api/state', {cache: 'no-store'});
+    const response = await fetch('./api/state', {cache: 'no-store'});
     const data = await response.json();
     if (response.status === 401) { location.replace('/'); return; }
     if (!response.ok) throw Error(data.error);
@@ -121,7 +121,7 @@ async function loadEpics(more = false) {
   next.hidden = true;
   message.textContent = 'Recherche dans Jira OP…';
   try {
-    const response = await fetch('/api/jira/epics?' + params, {signal:controller.signal});
+    const response = await fetch('./api/jira/epics?' + params, {signal:controller.signal});
     const data = await response.json();
     if (epicPicker !== picker || picker.controller !== controller) return;
     if (!response.ok) throw Error(data.error);
@@ -156,7 +156,7 @@ async function openJiraWorklogs() {
   modal.showModal();
   try {
     const params = new URLSearchParams({cockpitId: preview.id, month: preview.month});
-    const response = await fetch('/api/jira/worklogs?' + params);
+    const response = await fetch('./api/jira/worklogs?' + params);
     const data = await response.json();
     if (jiraPreview !== preview) return;
     if (!response.ok) throw Error(data.error);
@@ -222,7 +222,7 @@ async function loadMemberSubmissions() {
   const panel = document.getElementById('member-submissions');
   if (!panel) return;
   try {
-    const response = await fetch('/api/member/submissions');
+    const response = await fetch('./api/member/submissions');
     const data = await response.json();
     if (!response.ok) throw Error(data.error);
     panel.innerHTML = data.sheets.length ? data.sheets.map(row => {
@@ -244,7 +244,7 @@ async function syncState(manual = false) {
   const startingRevision = revision;
   const firstTab = tab;
   try {
-    const response = await fetch('/api/state', {cache:'no-store'});
+    const response = await fetch('./api/state', {cache:'no-store'});
     if (response.status === 401) { location.replace('/'); return; }
     if (!response.ok) throw Error('Actualisation momentanément indisponible.');
     const data = await response.json();

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { initialStore, getInvoiceForMonth, isPoOwner, visiblePoInvoices, moneyRound } from '../dist/domain.js';
 import { applyAction } from './actions.mjs';
-import { sessions, loginPage } from './session.mjs';
+import { sessions, loginPage, adminNavigation } from './session.mjs';
 import { memberConfig, getMemberSheet, refreshMemberSheet, validateMemberSheet, businessSheet } from './member.mjs';
 import { resetReceiptWorkspace } from './reset-receipt.mjs';
 import { resetDefaultDemo } from './reset-default-demo.mjs';
@@ -27,6 +27,10 @@ await db.query(`CREATE TABLE IF NOT EXISTS cds_member_sheet (
   version integer NOT NULL DEFAULT 1, validated_at timestamptz,
   PRIMARY KEY(email, month)
 )`);
+const adminPassword = process.env.ADMIN_PASSWORD;
+const adminEnabled = Boolean(adminPassword && adminPassword.length >= 32 &&
+  !Object.values(passwords).includes(adminPassword));
+if (adminEnabled) passwords.admin = adminPassword;
 const auth = sessions(db, passwords);
 
 // One-time cleanup of the initial hosted acceptance test. The revision guard
@@ -88,10 +92,12 @@ createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   const requestUrl = new URL(req.url, 'http://localhost');
-  const path = requestUrl.pathname;
-  if (path === '/healthz' && req.method === 'GET') return json(res, 200, { ok: true });
+  const requestPath = requestUrl.pathname;
+  const [, view, scopedPath] = /^\/admin\/(laurent|jennifer|lassaad|member)(\/.*)$/.exec(requestPath) || [];
+  const path = scopedPath ?? requestPath;
+  if (requestPath === '/healthz' && req.method === 'GET') return json(res, 200, { ok: true });
   try {
-    if (req.method === 'POST' && ['/login', '/logout'].includes(path)) {
+    if (req.method === 'POST' && ['/login', '/logout'].includes(requestPath)) {
       if (req.headers['sec-fetch-site'] !== 'same-origin') return json(res, 403, { error: 'Requête hors du cockpit.' });
       if (path === '/logout') {
         await auth.logout(req, res);
@@ -100,31 +106,42 @@ createServer(async (req, res) => {
         const form = new URLSearchParams(await readBody(req, 4096));
         const chosen = form.get('role');
         const role = chosen === 'member' ? (form.get('email') || '').trim().toLowerCase() :
-          roles.includes(chosen) ? chosen : '';
+          roles.includes(chosen) || (chosen === 'admin' && adminEnabled) ? chosen : '';
         const ok = chosen === 'member' && role !== member?.email ? false :
           await auth.login(req, res, role, form.get('password') || '');
-        if (!ok) return loginPage(res, 'invalid', Boolean(member), chosen);
+        if (!ok) return loginPage(res, 'invalid', Boolean(member), chosen, adminEnabled);
       }
-      res.writeHead(303, { Location: path === '/login' ? '/cockpit' : '/' });
+      res.writeHead(303, { Location: path === '/logout' ? '/' : '/cockpit' });
       return res.end();
     }
-    if (path === '/' && req.method === 'GET') return loginPage(res, '', Boolean(member));
-    if (path === '/login.js' && req.method === 'GET') {
+    if (requestPath === '/' && req.method === 'GET') return loginPage(res, '', Boolean(member), '', adminEnabled);
+    if (requestPath === '/login.js' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
       return res.end(await readFile(new URL('./login.js', import.meta.url), 'utf8'));
     }
-    if (path === '/cockpit' && req.method === 'GET' && !await auth.openCockpit(req)) {
-      res.writeHead(303, { Location: '/' });
-      return res.end();
+    const account = await auth.role(req);
+    const admin = account === 'admin' && adminEnabled;
+    if (view && (!admin || (view === 'member' && !member))) {
+      return json(res, 403, { error: 'Changement de profil réservé à un administrateur connecté.' });
     }
-    const role = await auth.role(req);
-    if (!role && path !== '/style.css') return json(res, 401, { error: 'Connexion au cockpit requise.' });
+    if (!view && path === '/cockpit' && req.method === 'GET') {
+      if (admin || !account || !await auth.openCockpit(req)) {
+        res.writeHead(303, { Location: admin ? '/admin/laurent/cockpit' : '/' });
+        return res.end();
+      }
+    }
+    if ((!account || (account === 'admin' && !view)) && path !== '/style.css') {
+      return json(res, 401, { error: 'Connexion au cockpit requise.' });
+    }
+    const role = view === 'member' ? member.email : view || account;
+    const navigation = view ? adminNavigation(view, Boolean(member)) : '';
     if (role && role === member?.email && path !== '/style.css') {
       if (req.method === 'GET' && ['/cockpit','/member.js'].includes(path)) {
         const filename = path === '/cockpit' ? 'member.html' : 'member.js';
         const html = path === '/cockpit';
         res.writeHead(200, { 'Content-Type': (html ? 'text/html' : 'text/javascript') + '; charset=utf-8' });
-        return res.end(await readFile(new URL('./' + filename, import.meta.url), 'utf8'));
+        const body = await readFile(new URL('./' + filename, import.meta.url), 'utf8');
+        return res.end(html ? body.replace('<body>', '<body>' + navigation) : body);
       }
       if (path !== '/api/member/sheet') return json(res, 403, { error: 'Accès réservé à votre fiche CDS.' });
       const month = requestUrl.searchParams.get('month') || '';
@@ -135,7 +152,10 @@ createServer(async (req, res) => {
             req.headers['content-type'] === 'application/json') {
           const { action, version } = JSON.parse(await readBody(req, 4096));
           if (action === 'refresh') sheet = await refreshMemberSheet(db, member, month);
-          else if (action === 'validate') sheet = await validateMemberSheet(db, member, month, version);
+          else if (action === 'validate') {
+            sheet = await validateMemberSheet(db, member, month, version);
+            if (admin) console.info('Fiche validée via la vue admin membre', { month });
+          }
           else return json(res, 400, { error: 'Action inconnue.' });
         } else return json(res, 403, { error: 'Requête hors du cockpit.' });
         return json(res, 200, { name: member.name, sheet });
@@ -207,12 +227,13 @@ createServer(async (req, res) => {
       }
       const updated = await db.query('UPDATE cockpit SET state = $1, revision = revision + 1 WHERE id = 1 AND revision = $2', [row.state, revision]);
       if (!updated.rowCount) return conflict();
+      if (admin) console.info('Action effectuée via la vue admin', { view, action });
       return json(res, 200, { revision: revision + 1, store: visibleState(row.state, role), result: result?.id ? { id: result.id } : null });
     }
     if (req.method === 'GET' && Object.hasOwn(assets, path)) {
       const [file, type] = assets[path];
       let body = await readFile(new URL('../dist/' + file, import.meta.url), 'utf8');
-      if (path === '/cockpit') body = body.replace('<html lang="fr">', '<html lang="fr" data-shared>');
+      if (path === '/cockpit') body = body.replace('<html lang="fr">', '<html lang="fr" data-shared>').replace('<body>', '<body>' + navigation);
       res.writeHead(200, { 'Content-Type': type + '; charset=utf-8' });
       return res.end(body);
     }

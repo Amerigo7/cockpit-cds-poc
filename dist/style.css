@@ -153,3 +153,25 @@ th{font-size:14px}.metric .label,.metric .detail,.panel-head p,.subtle,.tag{font
 .project-scroll-controls input::-webkit-slider-thumb { appearance: none; height: .85rem; width: clamp(2.5rem, 14vw, 8rem); border-radius: 1rem; background: #8a92a2; }
 .project-scroll-controls input::-moz-range-thumb { height: .85rem; width: clamp(2.5rem, 14vw, 8rem); border: 0; border-radius: 1rem; background: #8a92a2; }
 .project-scroll-controls input:focus-visible { outline: 2px solid #5d6779; }
+
+.admin-views {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .45rem .75rem;
+  padding: .65rem clamp(1rem, 3vw, 2.25rem);
+  color: #17263c;
+  background: #e8f6f7;
+  border-bottom: 1px solid #c5e3e5;
+  font-size: .88rem;
+}
+.admin-views a {
+  padding: .35rem .7rem;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid #b2cccf;
+  border-radius: .5rem;
+}
+.admin-views a:hover { background: white; }
+.admin-views a[aria-current="page"] { color: white; background: #146960; border-color: #146960; }
+@media print { .admin-views { display: none !important; } }
