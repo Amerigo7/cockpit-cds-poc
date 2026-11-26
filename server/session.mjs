@@ -54,7 +54,9 @@ export function adminNavigation(current, memberEnabled) {
   return `<nav class="admin-views" aria-label="Changer de vue admin">
     <strong>Session admin</strong><span>Afficher la vue</span>
     ${profiles.map(([id, name]) => `<a href="/admin/${id}/cockpit"${id === current ? ' aria-current="page"' : ''}>${name}</a>`).join('')}
-  </nav>`;
+    <button type="button" class="admin-reset" id="admin-reset">Réinitialiser la démo</button>
+    <span class="admin-reset-status" id="admin-reset-status" role="status"></span>
+  </nav><script type="module" src="/admin/reset-demo.js"></script>`;
 }
 
 export function loginPage(res, error = '', memberEnabled = false, selectedRole = '', adminEnabled = false) {

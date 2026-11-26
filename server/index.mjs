@@ -6,7 +6,7 @@ import { applyAction } from './actions.mjs';
 import { sessions, loginPage, adminNavigation } from './session.mjs';
 import { memberConfig, getMemberSheet, refreshMemberSheet, validateMemberSheet, businessSheet } from './member.mjs';
 import { resetReceiptWorkspace } from './reset-receipt.mjs';
-import { resetDefaultDemo } from './reset-default-demo.mjs';
+import { resetDefaultDemo, resetDemo } from './reset-default-demo.mjs';
 import { searchEpics, verifyNewEpicLinks, previewWorklogs } from './jira.mjs';
 
 const roles = ['laurent', 'jennifer', 'lassaad'];
@@ -121,6 +121,24 @@ createServer(async (req, res) => {
     }
     const account = await auth.role(req);
     const admin = account === 'admin' && adminEnabled;
+    if (requestPath === '/admin/reset-demo') {
+      if (!admin || req.headers['sec-fetch-site'] !== 'same-origin') {
+        return json(res, 403, { error: 'Réinitialisation réservée à la session Admin.' });
+      }
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return json(res, 405, { error: 'Utilisez le bouton de réinitialisation du cockpit.' });
+      }
+      const status = await resetDemo(db);
+      if (status === 'missing') return json(res, 409, { error: 'Les deux PO de démonstration doivent exister.' });
+      if (status === 'conflict') return json(res, 409, { error: 'Le cockpit a changé pendant la réinitialisation. Réessayez.' });
+      console.info('Démo réinitialisée via la session Admin');
+      return json(res, 200, { ok: true });
+    }
+    if (admin && requestPath === '/admin/reset-demo.js' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+      return res.end(await readFile(new URL('./reset-demo.js', import.meta.url), 'utf8'));
+    }
     if (view && (!admin || (view === 'member' && !member))) {
       return json(res, 403, { error: 'Changement de profil réservé à un administrateur connecté.' });
     }

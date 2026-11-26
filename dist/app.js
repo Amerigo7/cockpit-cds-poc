@@ -445,6 +445,7 @@ window.addEventListener('focus', refreshLinkedStatus);
 document.addEventListener('visibilitychange', refreshLinkedStatus);
 if (shared) setInterval(refreshLinkedStatus, 15000);
 modal.addEventListener('cancel',event=>{event.preventDefault();closeModal();});
+window.addEventListener('cockpit-demo-reset',()=>{dirty=false;modalDirty=false;});
 window.addEventListener('beforeunload',event=>{if(dirty||modalDirty){event.preventDefault();event.returnValue='';}});
 if (shared) startShared();
 else render();

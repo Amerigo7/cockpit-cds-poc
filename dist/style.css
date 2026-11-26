@@ -175,3 +175,17 @@ th{font-size:14px}.metric .label,.metric .detail,.panel-head p,.subtle,.tag{font
 .admin-views a:hover { background: white; }
 .admin-views a[aria-current="page"] { color: white; background: #146960; border-color: #146960; }
 @media print { .admin-views { display: none !important; } }
+.admin-reset {
+  margin-inline-start: auto;
+  padding: .35rem .7rem;
+  background: white;
+  border: 1px solid #b38678;
+  border-radius: .5rem;
+  color: #7a302b;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.admin-reset:hover { background: #fff3ee; }
+.admin-reset:disabled { opacity: .65; cursor: wait; }
+.admin-reset-status:empty { display: none; }
