@@ -29,15 +29,8 @@ async function dispatch(action, args, local) {
     saving = false;
   }
 }
-let onboarding = false;
 function openFirstScreen() {
   tab = who === 'lassaad' ? (shared ? 'allocation' : 'budget') : (shared ? 'budget' : 'setup');
-  const key = 'cockpit-guide-v1-' + (shared ? 'shared-' : 'local-') + who;
-  try {
-    onboarding = !localStorage.getItem(key);
-    if (onboarding) localStorage.setItem(key, 'seen');
-  } catch { onboarding = true; }
-  if (onboarding) tab = 'guide';
 }
 function openNewPo() {
   modal.innerHTML = `<div class="dialog-header"><h2>Nouveau PO</h2><button type="button" class="close" data-action="close" aria-label="Fermer">×</button></div>
@@ -223,7 +216,7 @@ function applyJiraWorklogs() {
 }
 
 function abandon(){return !dirty||confirm('Des modifications ne sont pas enregistrées. Les abandonner ?');}
-function closeModal(){if(modalDirty&&!confirm('Abandonner les modifications de la facture ?'))return false;modal.close();jiraPreview=null;modalDirty=false;modalInvoice=null;return true;}
+function closeModal(){if(modalDirty&&!confirm('Abandonner les modifications de la facture ?'))return false;modal.close();jiraPreview=null;simulation=null;modalDirty=false;modalInvoice=null;return true;}
 function availableMonth(c){const months=D.monthsBetween(c.start,c.end).filter(m=>!c.openingMonth||m>c.openingMonth);return months.includes(selectedMonth)?selectedMonth:months.includes(c.reportMonth)?c.reportMonth:months[0]||'';}
 async function loadMemberSubmissions() {
   const panel = document.getElementById('member-submissions');
@@ -238,7 +231,97 @@ async function loadMemberSubmissions() {
     }).join('') : 'Aucune fiche membre validée.';
   } catch (error) { panel.textContent = error.message; }
 }
-function render(){closeEpicPicker();if(!who){root.innerHTML=V.login();return;}const c=current();selectedMonth=availableMonth(c);if(tab==='setup'&&!setupDraft)setupDraft=structuredClone(c);const body=tab==='setup'?V.setup(setupDraft,shared):tab==='allocation'?V.allocation(c,selectedMonth,shared):tab==='invoices'?V.invoices(c,who):tab==='members'&&who==='lassaad'&&shared?'<h1>Fiches CDS</h1><p>Fiches mensuelles validées par les membres.</p><div id="member-submissions" role="status">Chargement…</div>':tab==='guide'?V.guide(c,shared,who,onboarding):V.budget(c,who);root.innerHTML=V.shell(store,who,tab,body,shared);dirty=false;if(tab==='setup')updateSplit();if(tab==='allocation')updateAllocation();if(tab==='members')loadMemberSubmissions();}
+let syncing = false;
+function canSync() {
+  return shared && who && !saving && !dirty && !setupDraft && !modal.open && !syncing;
+}
+async function syncState(manual = false) {
+  if (!canSync()) {
+    if (manual) notify('Enregistrez ou fermez la saisie en cours avant d’actualiser.', true);
+    return;
+  }
+  syncing = true;
+  const startingRevision = revision;
+  const firstTab = tab;
+  try {
+    const response = await fetch('/api/state', {cache:'no-store'});
+    if (response.status === 401) { location.replace('/'); return; }
+    if (!response.ok) throw Error('Actualisation momentanément indisponible.');
+    const data = await response.json();
+    if (data.role !== who) { location.replace('/'); return; }
+    if (saving || dirty || setupDraft || modal.open || revision !== startingRevision || tab !== firstTab) return;
+    if (data.revision !== revision) {
+      const active = store.activeId;
+      const y = window.scrollY;
+      const left = document.getElementById('project-scroll-region')?.scrollLeft || 0;
+      store = data.store;
+      selectSharedCockpit(active);
+      revision = data.revision;
+      render();
+      window.scrollTo(0,y);
+      const region = document.getElementById('project-scroll-region');
+      if (region) region.scrollLeft = left;
+    }
+    if (manual) notify('Statuts actualisés.');
+  } catch (error) {
+    if (manual) notify(error.message, true);
+  } finally { syncing = false; }
+}
+function updateProjectScroll() {
+  const region = document.getElementById('project-scroll-region');
+  if (!region) return;
+  const max = Math.max(0, region.scrollWidth - region.clientWidth);
+  const controls = document.querySelector('.project-scroll-controls');
+  controls.hidden = max < 2;
+  const range = document.getElementById('project-scroll-position');
+  range.max = String(max);
+  range.value = String(Math.round(region.scrollLeft));
+  range.setAttribute('aria-valuetext', Math.round((region.scrollLeft / (max || 1)) * 100) + ' %');
+  controls.querySelector('[data-id="left"]').disabled = region.scrollLeft < 2;
+  controls.querySelector('[data-id="right"]').disabled = max - region.scrollLeft < 2;
+}
+let simulation = null;
+function openForecastSimulator() {
+  const c = current();
+  const base = D.finances(c);
+  if (base.forecast === null || !c.projects.length) throw Error('Complétez le paramétrage pour simuler les ETP.');
+  const projectId = [...base.rows].sort((a,b)=>(b.forecast-b.budget)-(a.forecast-a.budget))[0].id;
+  simulation = { base, projectId, devices: {} };
+  modal.innerHTML = `<div class="dialog-header"><h2>Simuler les ETP</h2><button type="button" class="close" data-action="close" aria-label="Fermer">×</button></div>
+    <div class="body forecast-simulation"><p>Les ajustements s’appliquent aux mois futurs sans ventilation enregistrée, après l’arrêté de ${V.month(c.reportMonth)}.</p>
+    <label class="field">Projet<select id="simulation-project">${c.projects.map(p=>`<option value="${V.h(p.id)}"${p.id===projectId?' selected':''}>${V.h(p.name||'Projet sans nom')}</option>`).join('')}</select></label>
+    <div id="simulation-sliders"></div><div id="simulation-result" aria-live="polite"></div>
+    <button type="button" class="btn" data-action="reset-simulation">Réinitialiser les jauges</button></div>`;
+  renderSimulatorSliders();
+  modal.showModal();
+}
+function renderSimulatorSliders() {
+  const p = current().projects.find(item=>item.id===simulation.projectId);
+  const device = simulation.devices[p.id] || p.device;
+  document.getElementById('simulation-sliders').innerHTML = D.ROLES.map(role=>{
+    const currentValue = Number(device[role.id]) || 0;
+    const initialValue = Number(p.device[role.id]) || 0;
+    return `<label class="simulation-slider"><span>${V.h(role.name)}</span><input type="range" min="0" max="${Math.max(5,Math.ceil(initialValue+2))}" step="0.5" value="${currentValue}" data-simulation-role="${V.h(role.id)}"><output>${V.dec(currentValue)} ETP</output></label>`;
+  }).join('');
+  updateSimulator();
+}
+function updateSimulator() {
+  const {base,projectId,devices} = simulation;
+  const forecast = D.finances(current(), current().reportMonth, devices);
+  const project = forecast.rows.find(p=>p.id===projectId);
+  const initial = base.rows.find(p=>p.id===projectId);
+  const card = (title, before, result)=>{
+    const health = D.projectHealth(result, forecast.unknown>0);
+    const delta = D.moneyRound(result.forecast-result.budget);
+    return `<section class="simulation-card"><h3>${V.h(title)}</h3><p>Forecast actuel ${V.euro(before.forecast)}</p>
+      <strong>${V.euro(result.forecast)}</strong><p>${V.euro(result.budget)} de budget · ${delta>0?'+':''}${V.euro(delta)} d’écart</p>
+      <span class="tag ${health.color}">${V.h(health.label)}</span></section>`;
+  };
+  const global = {forecast:forecast.forecast,budget:forecast.budget,actual:forecast.actual};
+  document.getElementById('simulation-result').innerHTML = card(project.name||'Projet',initial,project)+card('Portefeuille du PO',base,global);
+}
+
+function render(){closeEpicPicker();if(!who){root.innerHTML=V.login();return;}const c=current();selectedMonth=availableMonth(c);if(tab==='setup'&&!setupDraft)setupDraft=structuredClone(c);const body=tab==='setup'?V.setup(setupDraft,shared):tab==='allocation'?V.allocation(c,selectedMonth,shared):tab==='invoices'?V.invoices(c,who):tab==='members'&&who==='lassaad'&&shared?'<h1>Fiches CDS</h1><p>Fiches mensuelles validées par les membres.</p><div id="member-submissions" role="status">Chargement…</div>':tab==='guide'?V.guide(c,shared,who):V.budget(c,who);root.innerHTML=V.shell(store,who,tab,body,shared);dirty=false;if(tab==='setup')updateSplit();if(tab==='allocation')updateAllocation();if(tab==='members')loadMemberSubmissions();if(tab==='budget')updateProjectScroll();}
 function value(form,name){return form.elements.namedItem(name)?.value??'';}
 function number(form,name){const raw=value(form,name).trim();return raw===''?0:Number(raw);}
 function readDefinition(){const form=document.getElementById('setup-form'),base=setupDraft||current();if(!form)return structuredClone(base);const next={...structuredClone(base)};for(const name of ['name','poRef','start','end','reportMonth','openingMonth','owner','coOwner','supplier'])next[name]=value(form,name).trim();for(const name of ['year','budget','monthlyDays'])next[name]=number(form,name);next.rates=Object.fromEntries(D.ROLES.map(r=>[r.id,number(form,`rate-${r.id}`)]));next.projects=[...form.querySelectorAll('[data-project]')].map(el=>{const p=base.projects.find(p=>p.id===el.dataset.project);const get=name=>el.querySelector(`[name="p-${name}"]`)?.value??'';const optional=name=>get(name).trim()===''?null:Number(get(name));return {...p,name:get('name').trim(),category:get('category'),budget:Number(get('budget')||0),start:get('start'),end:get('end'),openingValidated:Number(get('openingValidated')||0),device:Object.fromEntries(D.ROLES.map(r=>[r.id,Number(get('device-'+r.id)||0)])),pointsPlanned:optional('pointsPlanned'),pointsDelivered:optional('pointsDelivered'),epics:get('epics').trim(),notes:get('notes').trim()};});return next;}
@@ -261,7 +344,15 @@ document.addEventListener('click',async event=>{const b=event.target.closest('[d
     return;
   }
   who='';setupDraft=null;render();
-}else if(action==='help-continue'){onboarding=false;tab=who==='lassaad'?'allocation':'budget';render();}else if(action==='nav'){if(!abandon())return;onboarding=false;tab=id;setupDraft=null;render();}else if(action==='jira-worklogs'){await openJiraWorklogs();}else if(action==='jira-apply'){applyJiraWorklogs();}else if(action==='jira-epics'){openEpicPicker(id);}else if(action==='epic-toggle'&&epicPicker){if(epicPicker.selected.has(id))epicPicker.selected.delete(id);else epicPicker.selected.add(id);updateEpicSelection();}else if(action==='epic-cancel'){closeEpicPicker(true);}else if(action==='epic-more'){await loadEpics(true);}else if(action==='epic-apply'&&epicPicker){const keys=[...epicPicker.selected].join(', ');epicPicker.input.value=keys;epicPicker.field.querySelector('[data-epic-label]').textContent=keys||'Sélectionner les epics';dirty=true;closeEpicPicker(true);}else if(action==='new'){if(!abandon())return;if(shared){openNewPo();return;}else transact((c,s)=>{const x=D.newCockpit();s.cockpits.push(x);s.activeId=x.id;});onboarding=false;tab='setup';setupDraft=null;selectedMonth='';render();}else if(action==='add-project'){setupDraft=readDefinition();setupDraft.projects.push(D.newProject(setupDraft.year));render();dirty=true;document.querySelector('.project-form:last-child').scrollIntoView({block:'center',behavior:'smooth'});}else if(action==='remove-project'){const draft=readDefinition(),p=draft.projects.find(p=>p.id===id),c=current();const linked=c.invoices.some(i=>i.lines.some(l=>l.projectId===id))||Object.values(c.expenses).some(s=>s.rows.some(r=>r.projectId===id))||p.openingValidated>0;if(linked)throw Error('Ce projet a un historique. Ajustez sa date de fin au lieu de le supprimer.');if(!confirm('Retirer ce projet du brouillon ?'))return;draft.projects=draft.projects.filter(p=>p.id!==id);setupDraft=draft;render();dirty=true;}else if(action==='prefill'){if(!confirm('Remplacer les jours saisis par une suggestion issue du dispositif prévu ? Vérifiez ensuite les jours réellement travaillés.'))return;for(const row of document.querySelectorAll('[data-allocation]')){const p=current().projects.find(p=>p.id===row.dataset.allocation);for(const input of row.querySelectorAll('[data-role]'))if(!input.disabled)input.value=p?Math.round(D.daysInProjectMonth(p,selectedMonth,current().monthlyDays)*p.device[input.dataset.role]*2)/2:0;}dirty=true;updateAllocation();}else if(action==='create-invoice'){if(dirty)throw Error('Validez les modifications de la ventilation avant de créer la facture.');const result=await dispatch('createInvoice',[selectedMonth],c=>D.createInvoice(c,selectedMonth,who));render();openInvoice(result.id);notify('Facture créée. Vérifiez les jours et les TJM facturés.');}else if(action==='revise'){const reason=prompt('Motif de reprise de la ventilation (la facture sera conservée comme annulée) :');if(reason===null)return;await dispatch('revise',[b.dataset.month,reason],c=>D.reviseExpense(c,b.dataset.month,reason,who));render();notify('Ventilation rouverte ; la facture précédente est archivée.');}else if(action==='invoice'){if(!abandon())return;openInvoice(id);}else if(action==='project'){const p=current().projects.find(p=>p.id===id);modal.innerHTML=V.projectDetail(current(),p,who);modalInvoice=null;modalDirty=false;modal.showModal();}else if(action==='close'){closeModal();}else if(action==='csv'){csv();}else if(action==='backup'){download('cockpit-sauvegarde.json',JSON.stringify(store,null,2),'application/json');notify('Sauvegarde JSON exportée.');}else if(action==='download-invoice'){if(modalDirty&&who==='lassaad'){const patch=invoicePatch();await dispatch('editInvoice',[id,patch,false],c=>D.editInvoice(c,id,patch,who));modalDirty=false;}const i=D.visiblePoInvoices(current(),who).find(i=>i.id===id);if(!i)throw Error('Facture introuvable');download(i.number.replace(/[^a-zA-Z0-9_-]/g,'_')+'.html',V.invoiceDocument(current(),i),'text/html;charset=utf-8');}}catch(error){notify(error.message,true);}});
+}else if(action==='help-continue'){tab=who==='lassaad'?'allocation':'budget';render();}else if(action==='nav'){if(!abandon())return;tab=id;setupDraft=null;render();}else if(action==='sync-state'){await syncState(true);}else if(action==='project-scroll'||action==='show-forecast-columns'){
+  const region=document.getElementById('project-scroll-region');
+  if(region){
+    if(action==='show-forecast-columns')region.scrollTo({left:region.scrollWidth,behavior:'smooth'});
+    else region.scrollBy({left:(id==='left'?-1:1)*Math.max(200,region.clientWidth*.7),behavior:'smooth'});
+  }
+}else if(action==='simulate-etp'){openForecastSimulator();}else if(action==='reset-simulation'&&simulation){
+  simulation.devices={};renderSimulatorSliders();
+}else if(action==='jira-worklogs'){await openJiraWorklogs();}else if(action==='jira-apply'){applyJiraWorklogs();}else if(action==='jira-epics'){openEpicPicker(id);}else if(action==='epic-toggle'&&epicPicker){if(epicPicker.selected.has(id))epicPicker.selected.delete(id);else epicPicker.selected.add(id);updateEpicSelection();}else if(action==='epic-cancel'){closeEpicPicker(true);}else if(action==='epic-more'){await loadEpics(true);}else if(action==='epic-apply'&&epicPicker){const keys=[...epicPicker.selected].join(', ');epicPicker.input.value=keys;epicPicker.field.querySelector('[data-epic-label]').textContent=keys||'Sélectionner les epics';dirty=true;closeEpicPicker(true);}else if(action==='new'){if(!abandon())return;if(shared){openNewPo();return;}else transact((c,s)=>{const x=D.newCockpit();s.cockpits.push(x);s.activeId=x.id;});tab='setup';setupDraft=null;selectedMonth='';render();}else if(action==='add-project'){setupDraft=readDefinition();setupDraft.projects.push(D.newProject(setupDraft.year));render();dirty=true;document.querySelector('.project-form:last-child').scrollIntoView({block:'center',behavior:'smooth'});}else if(action==='remove-project'){const draft=readDefinition(),p=draft.projects.find(p=>p.id===id),c=current();const linked=c.invoices.some(i=>i.lines.some(l=>l.projectId===id))||Object.values(c.expenses).some(s=>s.rows.some(r=>r.projectId===id))||p.openingValidated>0;if(linked)throw Error('Ce projet a un historique. Ajustez sa date de fin au lieu de le supprimer.');if(!confirm('Retirer ce projet du brouillon ?'))return;draft.projects=draft.projects.filter(p=>p.id!==id);setupDraft=draft;render();dirty=true;}else if(action==='prefill'){if(!confirm('Remplacer les jours saisis par une suggestion issue du dispositif prévu ? Vérifiez ensuite les jours réellement travaillés.'))return;for(const row of document.querySelectorAll('[data-allocation]')){const p=current().projects.find(p=>p.id===row.dataset.allocation);for(const input of row.querySelectorAll('[data-role]'))if(!input.disabled)input.value=p?Math.round(D.daysInProjectMonth(p,selectedMonth,current().monthlyDays)*p.device[input.dataset.role]*2)/2:0;}dirty=true;updateAllocation();}else if(action==='create-invoice'){if(dirty)throw Error('Validez les modifications de la ventilation avant de créer la facture.');const result=await dispatch('createInvoice',[selectedMonth],c=>D.createInvoice(c,selectedMonth,who));render();openInvoice(result.id);notify('Facture créée. Vérifiez les jours et les TJM facturés.');}else if(action==='revise'){const reason=prompt('Motif de reprise de la ventilation (la facture sera conservée comme annulée) :');if(reason===null)return;await dispatch('revise',[b.dataset.month,reason],c=>D.reviseExpense(c,b.dataset.month,reason,who));render();notify('Ventilation rouverte ; la facture précédente est archivée.');}else if(action==='invoice'){if(!abandon())return;openInvoice(id);}else if(action==='project'){const p=current().projects.find(p=>p.id===id);modal.innerHTML=V.projectDetail(current(),p,who);modalInvoice=null;modalDirty=false;modal.showModal();}else if(action==='close'){closeModal();}else if(action==='csv'){csv();}else if(action==='backup'){download('cockpit-sauvegarde.json',JSON.stringify(store,null,2),'application/json');notify('Sauvegarde JSON exportée.');}else if(action==='download-invoice'){if(modalDirty&&who==='lassaad'){const patch=invoicePatch();await dispatch('editInvoice',[id,patch,false],c=>D.editInvoice(c,id,patch,who));modalDirty=false;}const i=D.visiblePoInvoices(current(),who).find(i=>i.id===id);if(!i)throw Error('Facture introuvable');download(i.number.replace(/[^a-zA-Z0-9_-]/g,'_')+'.html',V.invoiceDocument(current(),i),'text/html;charset=utf-8');}}catch(error){notify(error.message,true);}});
 document.addEventListener('submit',async event=>{const form=event.target;if(form.id==='new-po-form'){
   event.preventDefault();
   if(saving)return;
@@ -281,7 +372,7 @@ document.addEventListener('submit',async event=>{const form=event.target;if(form
   button.textContent='Création en cours…';
   try {
     await dispatch('newCockpit',[poRef,value(form,'owner')]);
-    closeModal(); onboarding=false; tab='setup'; setupDraft=null; selectedMonth=''; render();
+    closeModal();  tab='setup'; setupDraft=null; selectedMonth=''; render();
     notify('PO créé. Vous pouvez maintenant ajouter et paramétrer ses projets.');
   } catch(error) {
     feedback.textContent=error.message;
@@ -292,6 +383,19 @@ document.addEventListener('submit',async event=>{const form=event.target;if(form
   return;
 }if(!['setup-form','allocation-form','invoice-form','review-form'].includes(form.id))return;event.preventDefault();if(saving)return;try{const intent=event.submitter?.value||'save';if(form.id==='setup-form'){const next=readDefinition(),activate=intent==='activate';await dispatch('definition',[next,activate],(c,s)=>{if(s.cockpits.some(x=>x.id!==c.id&&x.poRef.trim().toUpperCase()===next.poRef.trim().toUpperCase()&&next.poRef))throw Error('Ce PO dispose déjà d’un cockpit. Sélectionnez son portefeuille.');D.saveDefinition(c,next,who,activate);});setupDraft=null;render();notify(activate?'Cockpit activé. Lassaad peut démarrer la ventilation.':'Paramétrage enregistré.');}else if(form.id==='allocation-form'){const rows=allocationRows();await dispatch('expense',[selectedMonth,rows,form.elements.zeroConfirmed.checked],c=>D.saveExpense(c,selectedMonth,rows,who,form.elements.zeroConfirmed.checked));render();notify('Ventilation validée. Vous pouvez créer la facture.');}else if(form.id==='invoice-form'){const id=form.dataset.id,patch=invoicePatch();await dispatch('editInvoice',[id,patch,intent==='send'],c=>{D.editInvoice(c,id,patch,who);if(intent==='send')D.sendInvoice(c,id,who);});render();openInvoice(id);notify(intent==='send'?'Facture transmise à l’owner du PO dans le cockpit.':'Facture enregistrée.');}else if(form.id==='review-form'){const id=form.dataset.id,note=value(form,'reviewNote');await dispatch('review',[id,note,intent],c=>intent==='return'?D.returnInvoice(c,id,note,who):D.validateInvoice(c,id,note,who));render();openInvoice(id);notify(intent==='return'?'Facture retournée à Lassaad.':'Facture validée et imputée une seule fois.');}}catch(error){notify(error.message,true);if(form.id==='setup-form'){document.getElementById('setup-feedback').innerHTML=`<div class="alert"><div><strong>Paramétrage à compléter</strong>${V.h(error.message)}</div></div>`;document.getElementById('setup-feedback').scrollIntoView({block:'start',behavior:'smooth'});}}});
 document.addEventListener('input',event=>{
+  if(event.target.id==='project-scroll-position'){
+    document.getElementById('project-scroll-region').scrollLeft=Number(event.target.value);return;
+  }
+  if(simulation&&event.target.hasAttribute('data-simulation-role')){
+    const project=current().projects.find(p=>p.id===simulation.projectId);
+    const values=simulation.devices[project.id]??={...project.device};
+    const value=Number(event.target.value);
+    values[event.target.dataset.simulationRole]=value;
+    event.target.nextElementSibling.textContent=V.dec(value)+' ETP';
+    updateSimulator();
+    return;
+  }
+
   if(event.target.id==='epic-query'&&epicPicker){
     epicPicker.query=event.target.value;
     clearTimeout(epicPicker.debounce);
@@ -302,12 +406,26 @@ document.addEventListener('input',event=>{
   if(event.target.hasAttribute('data-epic-check')) return;
 if(event.target.closest('#setup-form')){dirty=true;updateSplit();}else if(event.target.closest('#allocation-form')){dirty=true;updateAllocation();}else if(event.target.closest('#invoice-form')){modalDirty=true;updateInvoice();}else if(event.target.closest('#review-form'))modalDirty=true;});
 document.addEventListener('change',event=>{
+  if(event.target.id==='simulation-project'&&simulation){
+    simulation.projectId=event.target.value;renderSimulatorSliders();return;
+  }
+
   if(event.target.hasAttribute('data-epic-check')&&epicPicker){
     if(event.target.checked) epicPicker.selected.add(event.target.value); else epicPicker.selected.delete(event.target.value);
     updateEpicSelection();
     return;
   }
   const kind=event.target.dataset.change;if(!kind)return;if(!abandon()){if(kind==='cockpit')event.target.value=store.activeId;else event.target.value=selectedMonth;return;}try{if(kind==='cockpit'){const id=event.target.value;if(shared)selectSharedCockpit(id);else transact((c,s)=>s.activeId=id);setupDraft=null;selectedMonth='';}else if(kind==='month')selectedMonth=event.target.value;render();}catch(error){notify(error.message,true);}});
+document.addEventListener('scroll', event => {
+  if (event.target.id === 'project-scroll-region') updateProjectScroll();
+}, true);
+window.addEventListener('resize', updateProjectScroll);
+const refreshLinkedStatus = () => {
+  if (document.visibilityState === 'visible' && ['allocation','invoices','budget'].includes(tab)) syncState();
+};
+window.addEventListener('focus', refreshLinkedStatus);
+document.addEventListener('visibilitychange', refreshLinkedStatus);
+if (shared) setInterval(refreshLinkedStatus, 15000);
 modal.addEventListener('cancel',event=>{event.preventDefault();closeModal();});
 window.addEventListener('beforeunload',event=>{if(dirty||modalDirty){event.preventDefault();event.returnValue='';}});
 if (shared) startShared();
