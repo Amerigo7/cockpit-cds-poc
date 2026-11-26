@@ -1,14 +1,14 @@
 <!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ma fiche d’imputation · Cockpit CDS</title><link rel="stylesheet" href="/style.css"></head>
+<title>Ma fiche d’imputation · Cockpit Owners Platforms</title><link rel="stylesheet" href="/style.css"></head>
 <body>
-<header class="topbar"><strong>Cockpit CDS · Membre</strong><form action="/logout" method="post"><button class="btn" type="submit">Se déconnecter</button></form></header>
+<header class="topbar"><strong>Cockpit Owners Platforms · Membre</strong><form action="/logout" method="post"><button class="btn" type="submit">Se déconnecter</button></form></header>
 <main class="content">
   <div class="heading"><div><h1>Ma fiche d’imputation</h1><p id="member-name"></p></div></div>
   <p>Jira OP · Tickets passés en Done dans le mois et tickets en cours à la date d’arrêté.</p>
   <p>Seules les périodes où vous étiez assigné sont comptées, du lundi au vendredi de 9 h à 18 h, heure de Paris. Le total ne compte les chevauchements qu’une fois.</p>
   <section class="panel"><div class="panel-body">
-    <div class="inline"><label for="member-month">Mois d’imputation</label><input id="member-month" type="month">
+    <div class="inline"><label for="member-month">Mois d’imputation</label><select id="member-month"></select>
       <button class="btn primary" id="member-load" type="button">Actualiser depuis Jira</button></div>
     <p id="member-status" role="status"></p>
     <div id="member-summary"></div>

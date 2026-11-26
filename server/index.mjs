@@ -101,12 +101,16 @@ createServer(async (req, res) => {
           roles.includes(chosen) ? chosen : '';
         const ok = chosen === 'member' && role !== member?.email ? false :
           await auth.login(req, res, role, form.get('password') || '');
-        if (!ok) return loginPage(res, 'invalid', Boolean(member));
+        if (!ok) return loginPage(res, 'invalid', Boolean(member), chosen);
       }
       res.writeHead(303, { Location: path === '/login' ? '/cockpit' : '/' });
       return res.end();
     }
     if (path === '/' && req.method === 'GET') return loginPage(res, '', Boolean(member));
+    if (path === '/login.js' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+      return res.end(await readFile(new URL('./login.js', import.meta.url), 'utf8'));
+    }
     if (path === '/cockpit' && req.method === 'GET' && !await auth.openCockpit(req)) {
       res.writeHead(303, { Location: '/' });
       return res.end();

@@ -233,14 +233,16 @@ def search_issues(client, project, types, statuses, month, ongoing_assignee=None
         raise ValueError("Clé de projet invalide.")
     window = f'DURING ("{start:%Y-%m-%d %H:%M}", "{end:%Y-%m-%d %H:%M}")'
     changes = " OR ".join(f"status CHANGED TO {quoted(status)} {window}" for status in statuses)
+    assignee_filter = ""
     if ongoing_assignee:
+        assignee_filter = f" AND assignee WAS {quoted(ongoing_assignee)} {window}"
         progress = 'statusCategory = "In Progress"' if progress_ids is None else (
             f"status WAS IN ({','.join(map(quoted, sorted(progress_ids)))}) {window}" if progress_ids else ""
         )
         if progress:
-            changes += f' OR ({progress} AND assignee WAS {quoted(ongoing_assignee)} {window})'
+            changes += f" OR ({progress})"
     type_filter = f" AND issuetype IN ({','.join(map(quoted, types))})" if types else ""
-    jql = f"project = {project}{type_filter} AND ({changes}) ORDER BY key"
+    jql = f"project = {project}{type_filter}{assignee_filter} AND ({changes}) ORDER BY key"
     params = {"jql": jql, "fields": "summary,issuetype,status,assignee,created,timespent,parent", "maxResults": 100}
     issues, seen = {}, set()
     while True:

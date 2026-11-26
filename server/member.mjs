@@ -52,7 +52,11 @@ async function extractSheet(member, month) {
       env: { PATH: process.env.PATH, JIRA_EMAIL: process.env.JIRA_EMAIL, JIRA_API_TOKEN: process.env.JIRA_API_TOKEN }
     }));
   } catch (error) {
-    const status = String(error.stderr || '').match(/HTTP (\d{3})/)?.[1];
+    const stderr = String(error.stderr || '');
+    const status = stderr.match(/HTTP (\d{3})/)?.[1];
+    const category = error.killed ? 'timeout' : stderr.match(/^(\w+Error):/m)?.[1] || error.code || 'unknown';
+    const counts = stderr.match(/INFO \d+ (?:tickets candidats|entrées d’historique)/g) || [];
+    console.warn('Calcul mensuel Jira échoué', { category, status, counts });
     throw Error(status ? 'Lecture Jira impossible (HTTP ' + status + ').' : 'La lecture Jira n’a pas abouti. Réessayez.');
   }
   const report = JSON.parse(stdout);

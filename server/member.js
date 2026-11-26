@@ -8,7 +8,15 @@ const number = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const when = new Intl.DateTimeFormat('fr-FR',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Paris'});
 const day = new Intl.DateTimeFormat('fr-FR',{dateStyle:'short',timeZone:'UTC'});
 const currentMonth = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Paris',year:'numeric',month:'2-digit'}).format(new Date());
-month.value = month.max = currentMonth;
+const monthName = new Intl.DateTimeFormat('fr-FR', { month:'long', year:'numeric', timeZone:'UTC' });
+const [currentYear, currentIndex] = currentMonth.split('-').map(Number);
+for (let year = currentYear; year >= 2026; year--) {
+  for (let index = year === currentYear ? currentIndex : 12; index >= 1; index--) {
+    const value = year + '-' + String(index).padStart(2, '0');
+    month.add(new Option(monthName.format(new Date(Date.UTC(year, index - 1, 1))), value));
+  }
+}
+month.value = currentMonth;
 let current = null, busy = false;
 
 function periodLabel(value) {
