@@ -3,13 +3,15 @@ import { createInvoice, demoCockpit, editInvoice, newCockpit, saveExpense, sendI
 // Reset the exact demo state requested by the user. The revision check also
 // prevents this one-time reset from overwriting changes on future restarts.
 export async function resetDefaultDemo(db) {
-  const revision = 37;
+  const revision = 46;
   const { rows: [row] } = await db.query('SELECT state FROM cockpit WHERE id = 1 AND revision = $1', [revision]);
   if (!row) return;
   const store = row.state;
   const currentDemo = store.cockpits.find(c => c.poRef === '124177');
   const currentExample = store.cockpits.find(c => c.poRef === 'TEST FACTU');
-  if (store.cockpits.length !== 2 || !currentDemo || !currentExample) return;
+  if (store.cockpits.length !== 2 || currentDemo?.status !== 'active' ||
+      currentDemo.invoices.length !== 1 || currentDemo.invoices[0].status !== 'sent' ||
+      currentExample?.invoices.length !== 1 || currentExample.invoices[0].status !== 'validated') return;
 
   const demo = demoCockpit();
   demo.id = currentDemo.id;
